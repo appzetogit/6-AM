@@ -1,0 +1,32 @@
+import mongoose from 'mongoose';
+
+const surveyQuestionSchema = new mongoose.Schema(
+    {
+        text: { type: String, required: true, trim: true },
+        type: { type: String, enum: ['text', 'single-choice', 'multiple-choice', 'rating'], default: 'text' },
+        options: { type: [String], default: [] },
+    },
+    { _id: true }
+);
+
+const surveySchema = new mongoose.Schema(
+    {
+        title: { type: String, required: true, trim: true },
+        description: { type: String, default: '', trim: true },
+        // Admin defines however many questions the survey needs.
+        questions: {
+            type: [surveyQuestionSchema],
+            required: true,
+            validate: {
+                validator: (v) => Array.isArray(v) && v.length > 0,
+                message: 'A survey needs at least one question',
+            },
+        },
+        // Only one survey is ever "active" (shown to new users) at a time —
+        // enforced in survey.service.js by deactivating others on activation.
+        status: { type: String, enum: ['active', 'inactive'], default: 'inactive', index: true },
+    },
+    { collection: 'food_surveys', timestamps: true }
+);
+
+export const FoodSurvey = mongoose.model('FoodSurvey', surveySchema);

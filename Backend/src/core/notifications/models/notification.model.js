@@ -1,0 +1,82 @@
+import mongoose from 'mongoose';
+
+const notificationSchema = new mongoose.Schema(
+    {
+        ownerType: {
+            type: String,
+            enum: ['USER', 'RESTAURANT', 'DELIVERY_PARTNER'],
+            required: true,
+            index: true
+        },
+        ownerId: {
+            type: mongoose.Schema.Types.ObjectId,
+            required: true,
+            index: true
+        },
+        title: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        message: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        link: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        category: {
+            type: String,
+            default: 'broadcast',
+            trim: true
+        },
+        source: {
+            type: String,
+            // SUBSCRIPTION_BILLING was missing, so every billing notification
+            // failed validation and was thrown away: sellers were invoiced and
+            // never told. The invoice itself saved regardless, which is why this
+            // went unnoticed — only a warning in the log marked it.
+            enum: ['ADMIN_BROADCAST', 'FSSAI_EXPIRY', 'SUPPORT_RESPONSE', 'SUBSCRIPTION_BILLING', 'MONTHLY_OFFER'],
+            default: 'ADMIN_BROADCAST',
+            index: true
+        },
+        broadcastId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'BroadcastNotification',
+            default: null,
+            index: true
+        },
+        metadata: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {}
+        },
+        isRead: {
+            type: Boolean,
+            default: false,
+            index: true
+        },
+        readAt: {
+            type: Date,
+            default: null
+        },
+        dismissedAt: {
+            type: Date,
+            default: null,
+            index: true
+        }
+    },
+    {
+        collection: 'food_notifications',
+        timestamps: true
+    }
+);
+
+notificationSchema.index({ ownerType: 1, ownerId: 1, createdAt: -1 });
+notificationSchema.index({ ownerType: 1, ownerId: 1, isRead: 1, dismissedAt: 1 });
+notificationSchema.index({ broadcastId: 1, ownerType: 1, ownerId: 1 }, { unique: true, sparse: true });
+notificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 });
+
+export const FoodNotification = mongoose.model('FoodNotification', notificationSchema);

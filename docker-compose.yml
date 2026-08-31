@@ -1,0 +1,22 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: switcheats_mongo
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    volumes:
+      - switcheats_mongo_data:/data/db
+
+  redis:
+    image: redis:7
+    container_name: switcheats_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - switcheats_redis_data:/data
+
+volumes:
+  switcheats_mongo_data:
+  switcheats_redis_data:
