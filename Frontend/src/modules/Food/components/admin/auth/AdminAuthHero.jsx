@@ -79,7 +79,7 @@ export default function AdminAuthHero({ themeColor, logoUrl }) {
               Admin Portal
             </p>
             <p className="text-lg font-bold leading-tight text-white">
-              Suvio <span style={{ color: themeColor }}>Quick Commerce</span>
+              6AM <span style={{ color: themeColor }}>Fresh</span>
             </p>
           </div>
         </motion.div>
@@ -124,7 +124,7 @@ export default function AdminAuthHero({ themeColor, logoUrl }) {
         </div>
 
         <motion.p {...fadeUp(0.32)} className="text-[11px] text-white/30">
-          &copy; {new Date().getFullYear()} {companyName || "Suvio Quick Commerce"}
+          &copy; {new Date().getFullYear()} {companyName || "6AM Fresh"}
         </motion.p>
       </div>
     </div>

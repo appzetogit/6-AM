@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Search, TrendingUp, ShoppingCart, XCircle, Star, Calendar, BarChart3, Users, Package, Clock, CreditCard, ChevronDown, Check, Store } from 'lucide-react'
+import { toast } from 'sonner'
+import { Search, TrendingUp, ShoppingCart, XCircle, Star, Calendar, BarChart3, Users, Package, Clock, CreditCard, ChevronDown, Check, Store, Plus, Minus, Trash2, Receipt, Loader2 } from 'lucide-react'
 import { adminAPI } from '@food/api'
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -48,6 +49,16 @@ export default function PointOfSale() {
   const [showPickerDropdown, setShowPickerDropdown] = useState(false)
   const [pickerFilter, setPickerFilter] = useState('')
   const pickerDropdownRef = useRef(null)
+
+  // Walk-in order (POS) state
+  const [restaurantFoods, setRestaurantFoods] = useState([])
+  const [foodsLoading, setFoodsLoading] = useState(false)
+  const [foodSearch, setFoodSearch] = useState('')
+  const [orderItems, setOrderItems] = useState([]) // [{ itemId, name, price, quantity }]
+  const [customerName, setCustomerName] = useState('')
+  const [customerPhone, setCustomerPhone] = useState('')
+  const [posPaymentMethod, setPosPaymentMethod] = useState('cash')
+  const [placingOrder, setPlacingOrder] = useState(false)
 
   const getRestaurantName = (restaurant) => {
     return String(
@@ -146,6 +157,93 @@ export default function PointOfSale() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showPickerDropdown])
+
+  // Fetch this restaurant's approved menu items for the walk-in order form
+  useEffect(() => {
+    if (!selectedRestaurant) {
+      setRestaurantFoods([])
+      setOrderItems([])
+      return
+    }
+    setOrderItems([])
+    setFoodsLoading(true)
+    adminAPI.getFoods({ restaurantId: selectedRestaurant, approvalStatus: 'approved', limit: 500 })
+      .then((response) => {
+        const list = response?.data?.data?.foods || response?.data?.data?.items || response?.data?.data || []
+        setRestaurantFoods(Array.isArray(list) ? list : [])
+      })
+      .catch(() => setRestaurantFoods([]))
+      .finally(() => setFoodsLoading(false))
+  }, [selectedRestaurant])
+
+  const filteredFoods = restaurantFoods.filter((food) => {
+    if (!foodSearch.trim()) return true
+    return String(food?.name || '').toLowerCase().includes(foodSearch.toLowerCase())
+  })
+
+  const addFoodToOrder = (food) => {
+    const id = String(food?._id || '')
+    if (!id) return
+    setOrderItems((prev) => {
+      const existing = prev.find((line) => line.itemId === id)
+      if (existing) {
+        return prev.map((line) => (line.itemId === id ? { ...line, quantity: line.quantity + 1 } : line))
+      }
+      return [...prev, { itemId: id, name: food.name, price: Number(food.price) || 0, quantity: 1 }]
+    })
+  }
+
+  const updateOrderItemQuantity = (itemId, delta) => {
+    setOrderItems((prev) =>
+      prev
+        .map((line) => (line.itemId === itemId ? { ...line, quantity: line.quantity + delta } : line))
+        .filter((line) => line.quantity > 0)
+    )
+  }
+
+  const removeOrderItem = (itemId) => setOrderItems((prev) => prev.filter((line) => line.itemId !== itemId))
+
+  const orderItemsTotal = orderItems.reduce((sum, line) => sum + line.price * line.quantity, 0)
+
+  const resetPosForm = () => {
+    setOrderItems([])
+    setCustomerName('')
+    setCustomerPhone('')
+    setPosPaymentMethod('cash')
+  }
+
+  const handlePlaceWalkInOrder = async () => {
+    if (!selectedRestaurant) {
+      toast.error('Select a restaurant first')
+      return
+    }
+    if (!customerPhone.trim()) {
+      toast.error('Customer phone number is required')
+      return
+    }
+    if (!orderItems.length) {
+      toast.error('Add at least one item to the order')
+      return
+    }
+
+    setPlacingOrder(true)
+    try {
+      await adminAPI.createAdminPosOrder({
+        restaurantId: selectedRestaurant,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        items: orderItems.map((line) => ({ itemId: line.itemId, quantity: line.quantity })),
+        paymentMethod: posPaymentMethod,
+      })
+      toast.success('Walk-in order placed successfully')
+      resetPosForm()
+      fetchRestaurantAnalytics(selectedRestaurant)
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to place walk-in order')
+    } finally {
+      setPlacingOrder(false)
+    }
+  }
 
   // Fetch restaurant analytics when restaurant is selected
   useEffect(() => {
@@ -633,6 +731,138 @@ export default function PointOfSale() {
                     : 'bg-red-100 text-red-700'
                 }`}>
                   {analyticsData.status === 'active' ? 'Active' : 'Inactive'}
+                </div>
+              </div>
+            </div>
+
+            {/* Walk-in Order (POS) */}
+            <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
+              <div className="flex items-center gap-3 mb-1">
+                <div className="p-2 bg-emerald-100 rounded-lg">
+                  <Receipt className="w-5 h-5 text-emerald-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-[#334257]">Create Walk-in Order</h3>
+              </div>
+              <p className="text-xs text-[#8a94aa] mb-4">
+                For a customer placing an order in person at this store. An account is created automatically by phone number if none exists.
+              </p>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Item picker */}
+                <div>
+                  <label className="block text-sm font-medium text-[#334257] mb-2">Menu Items</label>
+                  <div className="relative mb-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8a94aa]" />
+                    <input
+                      type="text"
+                      value={foodSearch}
+                      onChange={(e) => setFoodSearch(e.target.value)}
+                      placeholder="Search menu items..."
+                      className="w-full h-10 pl-9 pr-3 text-sm rounded-lg border border-[#e3e6ef] focus:outline-none focus:ring-1 focus:ring-[#006fbd]"
+                    />
+                  </div>
+                  <div className="border border-[#e3e6ef] rounded-lg max-h-64 overflow-y-auto">
+                    {foodsLoading ? (
+                      <div className="px-4 py-8 text-center text-sm text-[#8a94aa]">
+                        <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2" />
+                        Loading menu...
+                      </div>
+                    ) : filteredFoods.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-sm text-[#8a94aa]">
+                        No approved menu items found for this restaurant.
+                      </div>
+                    ) : (
+                      filteredFoods.map((food) => (
+                        <button
+                          key={food._id}
+                          type="button"
+                          onClick={() => addFoodToOrder(food)}
+                          className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-[#f9fafc] border-b border-[#eef1f6] last:border-b-0"
+                        >
+                          <span className="text-sm font-medium text-[#334257]">{food.name}</span>
+                          <span className="flex items-center gap-2 text-sm text-[#8a94aa]">
+                            {formatCurrency(food.price)}
+                            <Plus className="w-3.5 h-3.5 text-[#006fbd]" />
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Order summary + customer details */}
+                <div>
+                  <label className="block text-sm font-medium text-[#334257] mb-2">Order</label>
+                  <div className="border border-[#e3e6ef] rounded-lg divide-y divide-[#eef1f6] mb-4 max-h-64 overflow-y-auto">
+                    {orderItems.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-sm text-[#8a94aa]">No items added yet.</div>
+                    ) : (
+                      orderItems.map((line) => (
+                        <div key={line.itemId} className="flex items-center justify-between px-4 py-2.5">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-[#334257] truncate">{line.name}</p>
+                            <p className="text-xs text-[#8a94aa]">{formatCurrency(line.price)} each</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button type="button" onClick={() => updateOrderItemQuantity(line.itemId, -1)} className="p-1 rounded hover:bg-slate-100">
+                              <Minus className="w-3.5 h-3.5 text-[#334257]" />
+                            </button>
+                            <span className="text-sm font-semibold text-[#334257] w-5 text-center">{line.quantity}</span>
+                            <button type="button" onClick={() => updateOrderItemQuantity(line.itemId, 1)} className="p-1 rounded hover:bg-slate-100">
+                              <Plus className="w-3.5 h-3.5 text-[#334257]" />
+                            </button>
+                            <button type="button" onClick={() => removeOrderItem(line.itemId)} className="p-1 rounded hover:bg-red-50 ml-1">
+                              <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {orderItems.length > 0 && (
+                    <div className="flex justify-between items-center mb-4 px-1">
+                      <span className="text-sm font-semibold text-[#334257]">Total</span>
+                      <span className="text-base font-bold text-[#006fbd]">{formatCurrency(orderItemsTotal)}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <input
+                      type="text"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      placeholder="Customer name (optional)"
+                      className="h-10 px-3 text-sm rounded-lg border border-[#e3e6ef] focus:outline-none focus:ring-1 focus:ring-[#006fbd]"
+                    />
+                    <input
+                      type="tel"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      placeholder="Customer phone *"
+                      className="h-10 px-3 text-sm rounded-lg border border-[#e3e6ef] focus:outline-none focus:ring-1 focus:ring-[#006fbd]"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={posPaymentMethod}
+                      onChange={(e) => setPosPaymentMethod(e.target.value)}
+                      className="h-10 px-3 text-sm rounded-lg border border-[#e3e6ef] bg-white focus:outline-none focus:ring-1 focus:ring-[#006fbd]"
+                    >
+                      <option value="cash">Cash</option>
+                      <option value="razorpay">Card / UPI</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handlePlaceWalkInOrder}
+                      disabled={placingOrder}
+                      className="flex-1 h-10 rounded-lg bg-[#006fbd] text-white text-sm font-semibold hover:bg-[#005a9c] disabled:opacity-60 flex items-center justify-center gap-2"
+                    >
+                      {placingOrder && <Loader2 className="w-4 h-4 animate-spin" />}
+                      {placingOrder ? 'Placing order…' : 'Place Order'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

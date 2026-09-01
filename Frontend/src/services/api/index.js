@@ -688,6 +688,11 @@ export const adminAPI = {
   /** Foods (admin) - separate collection */
   getFoods: (params = {}) =>
     apiClient.get("/food/admin/foods", { params, contextModule: "admin" }),
+  /** POS (admin) — ring up a walk-in order on behalf of a restaurant */
+  createAdminPosOrder: (body) =>
+    apiClient.post("/food/admin/pos/orders", body ?? {}, {
+      contextModule: "admin",
+    }),
   createFood: (body) =>
     apiClient.post("/food/admin/foods", body ?? {}, { contextModule: "admin" }),
   updateFood: (id, body) =>
@@ -944,6 +949,20 @@ export const adminAPI = {
     apiClient.delete(`/food/admin/offers/${String(offerId)}`, {
       contextModule: "admin",
     }),
+
+  /** Surveys (admin) — welcome/onboarding popup shown once to new users */
+  getSurveys: () =>
+    apiClient.get("/food/admin/surveys", { contextModule: "admin" }),
+  createSurvey: (body) =>
+    apiClient.post("/food/admin/surveys", body ?? {}, {
+      contextModule: "admin",
+    }),
+  updateSurveyStatus: (surveyId, status) =>
+    apiClient.patch(
+      `/food/admin/surveys/${String(surveyId)}/status`,
+      { status },
+      { contextModule: "admin" },
+    ),
 
   /** Delivery Partner Bonus (admin) */
   getDeliveryPartnerBonusTransactions: (params = {}) =>

@@ -1,0 +1,312 @@
+import { useState, useEffect, useCallback } from "react"
+import { toast } from "sonner"
+import { Plus, Trash2, ClipboardList, Loader2 } from "lucide-react"
+import { adminAPI } from "@food/api"
+
+const QUESTION_TYPES = [
+  { value: "text", label: "Text answer" },
+  { value: "single-choice", label: "Single choice" },
+  { value: "multiple-choice", label: "Multiple choice" },
+  { value: "rating", label: "Rating" },
+]
+
+const emptyQuestion = () => ({ text: "", type: "text", optionsText: "" })
+
+export default function SurveyManagement() {
+  const [surveys, setSurveys] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+  const [statusUpdatingId, setStatusUpdatingId] = useState(null)
+
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const [questions, setQuestions] = useState([emptyQuestion()])
+
+  const loadSurveys = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await adminAPI.getSurveys()
+      setSurveys(res?.data?.data?.surveys || [])
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to load surveys")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSurveys()
+  }, [loadSurveys])
+
+  const resetForm = () => {
+    setTitle("")
+    setDescription("")
+    setQuestions([emptyQuestion()])
+  }
+
+  const addQuestion = () => setQuestions((prev) => [...prev, emptyQuestion()])
+
+  const removeQuestion = (index) =>
+    setQuestions((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
+
+  const updateQuestion = (index, patch) =>
+    setQuestions((prev) => prev.map((q, i) => (i === index ? { ...q, ...patch } : q)))
+
+  const needsOptions = (type) => type === "single-choice" || type === "multiple-choice"
+
+  const handleCreate = async (e) => {
+    e.preventDefault()
+    if (!title.trim()) {
+      toast.error("Survey title is required")
+      return
+    }
+    const cleanedQuestions = questions
+      .filter((q) => q.text.trim())
+      .map((q) => ({
+        text: q.text.trim(),
+        type: q.type,
+        options: needsOptions(q.type)
+          ? q.optionsText.split(",").map((o) => o.trim()).filter(Boolean)
+          : [],
+      }))
+    if (!cleanedQuestions.length) {
+      toast.error("At least one question is required")
+      return
+    }
+    const badOptions = cleanedQuestions.find((q) => needsOptions(q.type) && q.options.length < 2)
+    if (badOptions) {
+      toast.error("Choice questions need at least 2 comma-separated options")
+      return
+    }
+
+    setCreating(true)
+    try {
+      await adminAPI.createSurvey({ title: title.trim(), description: description.trim(), questions: cleanedQuestions })
+      toast.success("Survey created successfully")
+      resetForm()
+      setShowForm(false)
+      loadSurveys()
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to create survey")
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleToggleStatus = async (survey) => {
+    const nextStatus = survey.status === "active" ? "inactive" : "active"
+    setStatusUpdatingId(survey._id)
+    try {
+      await adminAPI.updateSurveyStatus(survey._id, nextStatus)
+      toast.success(
+        nextStatus === "active"
+          ? "Survey activated — it will now show once to new users"
+          : "Survey deactivated"
+      )
+      loadSurveys()
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to update survey status")
+    } finally {
+      setStatusUpdatingId(null)
+    }
+  }
+
+  return (
+    <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
+              <ClipboardList className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">Survey</h1>
+              <p className="text-sm text-slate-500">
+                Shown once to new users the first time they open the app. Only one survey can be active at a time.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="px-4 py-2.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-2 transition-all shadow-md"
+          >
+            <Plus className="w-4 h-4" />
+            {showForm ? "Cancel" : "Create Survey"}
+          </button>
+        </div>
+
+        {showForm && (
+          <form onSubmit={handleCreate} className="mt-6 border-t border-slate-200 pt-6 space-y-4">
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Welcome survey"
+                  className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Description (optional)
+                </label>
+                <input
+                  type="text"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Shown under the title in the popup"
+                  className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Questions ({questions.length})
+                </label>
+                <button
+                  type="button"
+                  onClick={addQuestion}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" /> Add question
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {questions.map((q, i) => (
+                  <div key={i} className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-2.5 text-xs font-bold text-slate-400 w-5">{i + 1}.</span>
+                      <div className="flex-1 space-y-2">
+                        <input
+                          type="text"
+                          value={q.text}
+                          onChange={(e) => updateQuestion(i, { text: e.target.value })}
+                          placeholder="Question text"
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={q.type}
+                            onChange={(e) => updateQuestion(i, { type: e.target.value })}
+                            className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            {QUESTION_TYPES.map((t) => (
+                              <option key={t.value} value={t.value}>{t.label}</option>
+                            ))}
+                          </select>
+                          {needsOptions(q.type) && (
+                            <input
+                              type="text"
+                              value={q.optionsText}
+                              onChange={(e) => updateQuestion(i, { optionsText: e.target.value })}
+                              placeholder="Options, comma separated e.g. Yes, No, Maybe"
+                              className="flex-1 min-w-[220px] px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeQuestion(i)}
+                        disabled={questions.length === 1}
+                        className="p-2 rounded text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Remove question"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={creating}
+                className="px-5 py-2.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2"
+              >
+                {creating && <Loader2 className="w-4 h-4 animate-spin" />}
+                {creating ? "Creating…" : "Create Survey"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Title</th>
+                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Questions</th>
+                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Created</th>
+                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Status</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-slate-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-16 text-center text-slate-500">
+                    <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                    Loading surveys…
+                  </td>
+                </tr>
+              ) : surveys.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-16 text-center">
+                    <p className="text-lg font-semibold text-slate-700 mb-1">No surveys yet</p>
+                    <p className="text-sm text-slate-500">Create one to show it to new users the first time they open the app.</p>
+                  </td>
+                </tr>
+              ) : (
+                surveys.map((survey) => (
+                  <tr key={survey._id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-slate-800">{survey.title}</div>
+                      {survey.description && (
+                        <div className="text-xs text-slate-500 mt-0.5">{survey.description}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
+                      {survey.questions?.length || 0}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
+                      {survey.createdAt ? new Date(survey.createdAt).toLocaleDateString() : "—"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <button
+                        onClick={() => handleToggleStatus(survey)}
+                        disabled={statusUpdatingId === survey._id}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-60 ${
+                          survey.status === "active" ? "bg-blue-600" : "bg-slate-300"
+                        }`}
+                        title={survey.status === "active" ? "Active — click to deactivate" : "Inactive — click to activate"}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            survey.status === "active" ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}

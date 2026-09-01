@@ -222,7 +222,7 @@ const restaurantSeeds = [
 const adminSeed = {
   email: 'admin@suvio.appzeto.com',
   password: 'Admin@12345',
-  name: 'Suvio Super Admin',
+  name: '6AM Fresh Super Admin',
   phone: '9171119999'
 };
 

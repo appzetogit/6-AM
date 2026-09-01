@@ -4470,7 +4470,9 @@ export async function getAllOffers(_query = {}) {
             restaurantScope: o.restaurantScope,
             createdByRole: o.createdByRole || 'ADMIN',
             adminBearPercentage: Number(o.adminBearPercentage ?? (o.createdByRole === 'RESTAURANT' ? 0 : 100)),
-            restaurantBearPercentage: Number(o.restaurantBearPercentage ?? (o.createdByRole === 'RESTAURANT' ? 100 : 0))
+            restaurantBearPercentage: Number(o.restaurantBearPercentage ?? (o.createdByRole === 'RESTAURANT' ? 100 : 0)),
+            isMonthly: Boolean(o.isMonthly),
+            notifyDaysBeforeNextMonth: o.notifyDaysBeforeNextMonth ?? 23
         };
     });
 

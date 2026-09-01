@@ -2,6 +2,7 @@ import express from 'express';
 import { AuthError } from '../../../../core/auth/errors.js';
 import * as adminController from '../controllers/admin.controller.js';
 import * as surveyController from '../controllers/survey.controller.js';
+import { createAdminPosOrderController } from '../controllers/pos.controller.js';
 import * as foodApprovalController from '../controllers/foodApproval.controller.js';
 import * as addonsApprovalController from '../controllers/addonsApproval.controller.js';
 import * as businessSettingsController from '../controllers/businessSettings.controller.js';
@@ -301,6 +302,7 @@ router.get('/offers', adminController.getAllOffers);
 router.post('/offers', adminController.createAdminOffer);
 router.post('/offers/monthly/run', adminController.runMonthlyOfferSweep);
 router.post('/product-subscriptions/run', adminController.runProductSubscriptionSweep);
+router.post('/pos/orders', createAdminPosOrderController);
 
 router.get('/surveys', surveyController.listSurveysController);
 router.post('/surveys', surveyController.createSurveyController);

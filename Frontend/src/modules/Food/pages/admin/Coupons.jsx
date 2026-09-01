@@ -226,6 +226,8 @@ export default function Coupons() {
     isFirstOrderOnly: false,
     adminBearPercentage: "100",
     restaurantBearPercentage: "0",
+    isMonthly: false,
+    notifyDaysBeforeNextMonth: "23",
   })
 
   const fetchOffers = useCallback(async () => {
@@ -405,6 +407,8 @@ export default function Coupons() {
       isFirstOrderOnly: false,
       adminBearPercentage: "100",
       restaurantBearPercentage: "0",
+      isMonthly: false,
+      notifyDaysBeforeNextMonth: "23",
     })
   }
 
@@ -452,6 +456,10 @@ export default function Coupons() {
         isFirstOrderOnly: Boolean(formData.isFirstOrderOnly),
         adminBearPercentage: Number(formData.adminBearPercentage),
         restaurantBearPercentage: Number(formData.restaurantBearPercentage),
+        isMonthly: Boolean(formData.isMonthly),
+        notifyDaysBeforeNextMonth: formData.notifyDaysBeforeNextMonth !== ""
+          ? Number(formData.notifyDaysBeforeNextMonth)
+          : undefined,
       }
       await adminAPI.createAdminOffer(payload)
 
@@ -730,6 +738,40 @@ export default function Coupons() {
                 <label htmlFor="isFirstOrderOnly" className="text-sm text-slate-700">First order only</label>
               </div>
 
+              <div className="flex items-center gap-2">
+                <input
+                  id="isMonthly"
+                  type="checkbox"
+                  checked={formData.isMonthly}
+                  onChange={(e) => handleFormChange("isMonthly", e.target.checked)}
+                  className="h-4 w-4"
+                />
+                <label htmlFor="isMonthly" className="text-sm text-slate-700">
+                  Monthly offer (auto-renews each calendar month)
+                </label>
+              </div>
+
+              {formData.isMonthly && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Notify customers (days before next month)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="60"
+                    step="1"
+                    value={formData.notifyDaysBeforeNextMonth}
+                    onChange={(e) => handleFormChange("notifyDaysBeforeNextMonth", e.target.value)}
+                    placeholder="23"
+                    className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="mt-1 text-xs text-slate-400">
+                    Customers who've ordered from the eligible restaurant(s) get notified this many days before the offer renews for the next month.
+                  </p>
+                </div>
+              )}
+
                 {formData.restaurantScope === "selected" && (
                   <div className="md:col-span-2 lg:col-span-3">
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Select Restaurants</label>
@@ -844,6 +886,11 @@ export default function Coupons() {
                         <span className="text-sm font-mono font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded whitespace-nowrap">
                           {offer.couponCode}
                         </span>
+                        {offer.isMonthly && (
+                          <span className="ml-1.5 inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 align-middle">
+                            Monthly
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${

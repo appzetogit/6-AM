@@ -62,6 +62,7 @@ const PATH_PREFIX_TO_SECTION = [
   { prefix: "/admin/store/power-scanning", section: "system_settings" },
   { prefix: "/admin/store/business-setup", section: "system_settings" },
   { prefix: "/admin/store/broadcast-notification", section: "system_settings" },
+  { prefix: "/admin/store/survey", section: "system_settings" },
   { prefix: "/admin/store/pages-social-media", section: "pages_social_media" },
   { prefix: "/admin/store/employees", section: "sub_admin_management" },
   { prefix: "/admin/store/employee-role", section: "sub_admin_management" },
