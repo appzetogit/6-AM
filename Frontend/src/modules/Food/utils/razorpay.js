@@ -102,7 +102,7 @@ export const initRazorpayPayment = async (options) => {
       order_id: options.order_id,
       name: options.name || '6AM Fresh',
       description: options.description || 'Order Payment',
-      image: options.image || '/switcheats-logo.png',
+      image: options.image || '/6am-fresh-logo.svg',
       prefill: options.prefill || {},
       notes: options.notes || {},
       theme: {
