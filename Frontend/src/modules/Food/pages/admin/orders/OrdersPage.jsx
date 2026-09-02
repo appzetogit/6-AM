@@ -25,6 +25,12 @@ const debugError = (...args) => {}
 // Status configuration with titles, colors, and icons
 const statusConfig = {
   "all": { title: "All Orders", color: "emerald", icon: FileText },
+  "scheduled": {
+    title: "Scheduled Orders",
+    subtitle: "Booked for a future delivery slot — not yet due",
+    color: "indigo",
+    icon: Package,
+  },
   "pending": {
     title: "Pending Orders",
     subtitle: "Cash orders awaiting restaurant acceptance",
@@ -49,6 +55,12 @@ const statusConfig = {
   "payment-failed": { title: "Payment Failed Orders", color: "red", icon: Package },
   "refunded": { title: "Refunded Orders", color: "sky", icon: Package },
   "offline-payments": { title: "Offline Payments", color: "slate", icon: Package },
+  "abandoned": {
+    title: "Abandoned Orders",
+    subtitle: "Checkout started but payment was never completed",
+    color: "slate",
+    icon: Package,
+  },
 }
 
 const PAGE_SIZE = 50

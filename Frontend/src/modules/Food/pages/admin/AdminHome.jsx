@@ -25,6 +25,7 @@ import {
 } from "recharts"
 import { Activity, ArrowUpRight, ShoppingBag, CreditCard, Truck, Receipt, DollarSign, Store, UserCheck, Package, UserCircle, Clock, CheckCircle, Plus, XCircle } from "lucide-react"
 import { adminAPI } from "@food/api"
+import { cn } from "@food/utils/utils"
 const debugLog = () => {}
 const debugError = () => {}
 
@@ -150,6 +151,38 @@ export default function AdminHome() {
   const completedOrders = dashboardData?.orderStats?.completed || 0
   const activeOrdersTotal = pendingOrders
 
+  // Onboarding checklist — mirrors a first-run "Getting Started" widget so a
+  // brand-new admin sees what's left before the platform can take real orders.
+  const gettingStartedSteps = [
+    {
+      title: "Add Your First Seller / Restaurant",
+      description: "Add the sellers or outlets that will accept orders on your platform.",
+      completed: totalRestaurants > 0,
+      path: "/admin/store/sellers",
+    },
+    {
+      title: "Menu & Product Setup",
+      description: "Upload your product catalogue with prices, descriptions, and images.",
+      completed: totalFoods > 0,
+      path: "/admin/store/products",
+    },
+    {
+      title: "Configure Your Platform",
+      description: "Set up delivery zones and basic business preferences.",
+      completed: zones.length > 0,
+      path: "/admin/store/business-setup",
+    },
+    {
+      title: "Website & App Design",
+      description: "Design your storefront to reflect your brand with colours, logo, and layout.",
+      completed: false,
+      path: "/admin/store/hero-banner-management",
+    },
+  ]
+  const gettingStartedPercent = Math.round(
+    (gettingStartedSteps.filter((step) => step.completed).length / gettingStartedSteps.length) * 100
+  )
+
   const pieData = orderStats.map((item) => ({
     name: item.label,
     value: item.value,
@@ -217,6 +250,65 @@ export default function AdminHome() {
             </Select>
           </div>
         </div>
+
+        {gettingStartedPercent < 100 && (
+          <div className="mx-6 mt-6 overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+            <div className="flex items-center justify-between px-6 pt-5">
+              <h2 className="flex items-center gap-2 text-base font-semibold text-neutral-900">
+                <span>🚀</span> Getting Started
+              </h2>
+              <span className="text-lg font-bold text-[#FA0272]">{gettingStartedPercent}%</span>
+            </div>
+            <p className="px-6 pt-1 text-sm text-neutral-500">
+              Follow these steps to go live and start taking real orders.
+            </p>
+            <div className="mx-6 mt-3 h-1.5 rounded-full bg-neutral-100">
+              <div
+                className="h-1.5 rounded-full bg-[#FA0272] transition-all duration-500"
+                style={{ width: `${gettingStartedPercent}%` }}
+              />
+            </div>
+            <div className="mt-4 divide-y divide-neutral-100 border-t border-neutral-100">
+              {gettingStartedSteps.map((step, idx) => {
+                const isFirstIncomplete =
+                  !step.completed && gettingStartedSteps.slice(0, idx).every((s) => s.completed)
+                return (
+                  <div
+                    key={step.title}
+                    className={cn(
+                      "flex items-center gap-4 px-6 py-4",
+                      isFirstIncomplete && "bg-pink-50/60"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
+                        step.completed
+                          ? "bg-emerald-500 text-white"
+                          : isFirstIncomplete
+                            ? "bg-[#FA0272] text-white"
+                            : "border border-neutral-300 text-neutral-400"
+                      )}
+                    >
+                      {step.completed ? <CheckCircle className="h-4 w-4" /> : idx + 1}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-neutral-900">{step.title}</p>
+                      <p className="text-sm text-neutral-500">{step.description}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate(step.path)}
+                      className="flex shrink-0 items-center gap-1 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50"
+                    >
+                      Review <ArrowUpRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="space-y-6 px-6 py-6">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

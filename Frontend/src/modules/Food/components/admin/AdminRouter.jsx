@@ -84,6 +84,7 @@ const DeliveryEarnings = lazy(() => import("@food/pages/admin/delivery-partners/
 // Disbursement Management
 // Report Management
 const TransactionReport = lazy(() => import("@food/pages/admin/reports/TransactionReport"));
+const WalletDashboard = lazy(() => import("@food/pages/admin/reports/WalletDashboard"));
 const ExpenseReport = lazy(() => import("@food/pages/admin/reports/ExpenseReport"));
 const DisbursementReportRestaurants = lazy(() => import("@food/pages/admin/reports/DisbursementReportRestaurants"));
 const DisbursementReportDeliverymen = lazy(() => import("@food/pages/admin/reports/DisbursementReportDeliverymen"));
@@ -258,7 +259,7 @@ export default function AdminRouter() {
             
             {/* ORDER MANAGEMENT */}
             <Route path="orders/all" element={<OrdersPage statusKey="all" />} />
-            <Route path="orders/scheduled" element={<Navigate to="/admin/food/orders/pending" replace />} />
+            <Route path="orders/scheduled" element={<OrdersPage statusKey="scheduled" />} />
             <Route path="orders/pending" element={<OrdersPage statusKey="pending" />} />
             <Route path="orders/accepted" element={<Navigate to="/admin/food/orders/processing" replace />} />
             <Route path="orders/processing" element={<OrdersPage statusKey="processing" />} />
@@ -269,6 +270,7 @@ export default function AdminRouter() {
             <Route path="orders/payment-failed" element={<OrdersPage statusKey="payment-failed" />} />
             <Route path="orders/refunded" element={<OrdersPage statusKey="refunded" />} />
             <Route path="orders/offline-payments" element={<OrdersPage statusKey="offline-payments" />} />
+            <Route path="orders/abandoned" element={<OrdersPage statusKey="abandoned" />} />
             <Route path="orders/user-carts" element={<UserCarts />} />
             <Route path="order-detect-delivery" element={<OrderDetectDelivery />} />
             <Route path="order-refunds/new" element={<NewRefundRequests />} />
@@ -365,6 +367,7 @@ export default function AdminRouter() {
 
             {/* REPORTS & SETTINGS */}
             <Route path="transaction-report" element={<TransactionReport />} />
+            <Route path="wallet-dashboard" element={<WalletDashboard />} />
             <Route path="expense-report" element={<ExpenseReport />} />
             <Route path="disbursement-report/restaurants" element={<DisbursementReportRestaurants />} />
             <Route path="disbursement-report/deliverymen" element={<DisbursementReportDeliverymen />} />

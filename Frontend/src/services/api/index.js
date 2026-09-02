@@ -886,6 +886,11 @@ export const adminAPI = {
       params: { page: 1, limit: 1000, ...params },
       contextModule: "admin",
     }),
+  getWalletDashboard: (params = {}) =>
+    apiClient.get("/food/admin/reports/wallet-dashboard", {
+      params,
+      contextModule: "admin",
+    }),
   getTaxReport: (params = {}) =>
     apiClient.get("/food/admin/reports/tax", {
       params: { page: 1, limit: 1000, ...params },

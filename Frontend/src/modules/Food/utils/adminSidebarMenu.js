@@ -6,15 +6,47 @@ export const adminSidebarMenu = [
     icon: "LayoutDashboard",
   },
   {
-    type: "link",
-    label: "Point of Sale",
-    path: "/admin/store/point-of-sale",
-    icon: "CreditCard",
+    type: "section",
+    label: "ORDERS",
+    items: [
+      {
+        type: "expandable",
+        label: "Orders",
+        icon: "FileText",
+        subItems: [
+          { label: "All", path: "/admin/store/orders/all" },
+          { label: "Scheduled", path: "/admin/store/orders/scheduled" },
+          { label: "Pending", path: "/admin/store/orders/pending" },
+          { label: "Processing", path: "/admin/store/orders/processing" },
+          { label: "Out For Delivery", path: "/admin/store/orders/food-on-the-way" },
+          { label: "Delivered", path: "/admin/store/orders/delivered" },
+          { label: "Cancelled", path: "/admin/store/orders/canceled" },
+          { label: "Seller cancelled", path: "/admin/store/orders/restaurant-cancelled" },
+          { label: "Payment Failed", path: "/admin/store/orders/payment-failed" },
+          { label: "Refunded", path: "/admin/store/orders/refunded" },
+          { label: "Offline Payments", path: "/admin/store/orders/offline-payments" },
+          { label: "Abandoned", path: "/admin/store/orders/abandoned" },
+          { label: "User Carts", path: "/admin/store/orders/user-carts" },
+        ],
+      },
+      {
+        type: "link",
+        label: "Order Detect Delivery",
+        path: "/admin/store/order-detect-delivery",
+        icon: "Truck",
+      },
+    ],
   },
   {
     type: "section",
-    label: "CATALOG MANAGEMENT",
+    label: "MANAGEMENT",
     items: [
+      {
+        type: "link",
+        label: "Point of Sale",
+        path: "/admin/store/point-of-sale",
+        icon: "CreditCard",
+      },
       {
         type: "link",
         label: "Product Approval",
@@ -36,12 +68,6 @@ export const adminSidebarMenu = [
         icon: "FolderTree",
         path: "/admin/store/categories",
       },
-    ],
-  },
-  {
-    type: "section",
-    label: "SELLER MANAGEMENT",
-    items: [
       {
         type: "link",
         label: "Zone Setup",
@@ -67,74 +93,7 @@ export const adminSidebarMenu = [
   },
   {
     type: "section",
-    label: "ORDER MANAGEMENT",
-    items: [
-      {
-        type: "expandable",
-        label: "Orders",
-        icon: "FileText",
-        subItems: [
-          { label: "All", path: "/admin/store/orders/all" },
-          { label: "Pending", path: "/admin/store/orders/pending" },
-          { label: "Processing", path: "/admin/store/orders/processing" },
-          { label: "Out For Delivery", path: "/admin/store/orders/food-on-the-way" },
-          { label: "Delivered", path: "/admin/store/orders/delivered" },
-          { label: "Cancelled", path: "/admin/store/orders/canceled" },
-          { label: "Seller cancelled", path: "/admin/store/orders/restaurant-cancelled" },
-          { label: "Payment Failed", path: "/admin/store/orders/payment-failed" },
-          { label: "Refunded", path: "/admin/store/orders/refunded" },
-          { label: "Offline Payments", path: "/admin/store/orders/offline-payments" },
-          { label: "User Carts", path: "/admin/store/orders/user-carts" },
-        ],
-      },
-      {
-        type: "link",
-        label: "Order Detect Delivery",
-        path: "/admin/store/order-detect-delivery",
-        icon: "Truck",
-      },
-    ],
-  },
-  {
-    type: "section",
-    label: "PROMOTIONS MANAGEMENT",
-    items: [
-      {
-        type: "link",
-        label: "Seller Coupons & Offers",
-        path: "/admin/store/coupons",
-        icon: "Gift",
-      },
-    ],
-  },
-  {
-    type: "section",
-    label: "REFERRAL & REWARDS",
-    items: [
-      { type: "link", label: "Referral Settings", path: "/admin/store/referral-settings", icon: "Gift" },
-    ],
-  },
-  {
-    type: "section",
-    label: "CUSTOMER MANAGEMENT",
-    items: [
-      {
-        type: "link",
-        label: "Customers",
-        path: "/admin/store/customers",
-        icon: "Users",
-      },
-      {
-        type: "link",
-        label: "Support Tickets (User & Seller)",
-        path: "/admin/store/support-tickets",
-        icon: "MessageSquare",
-      },
-    ],
-  },
-  {
-    type: "section",
-    label: "DELIVERY MANAGEMENT",
+    label: "DELIVERY",
     items: [
       { type: "link", label: "Delivery & Platform Fee", path: "/admin/store/fee-settings", icon: "DollarSign" },
       { type: "link", label: "Delivery Withdrawal", path: "/admin/store/delivery-withdrawal", icon: "Wallet" },
@@ -161,19 +120,48 @@ export const adminSidebarMenu = [
   },
   {
     type: "section",
-    label: "HELP & SUPPORT",
+    label: "CUSTOMERS & SUPPORT",
     items: [
+      {
+        type: "link",
+        label: "Customers",
+        path: "/admin/store/customers",
+        icon: "Users",
+      },
+      {
+        type: "link",
+        label: "Support Tickets (User & Seller)",
+        path: "/admin/store/support-tickets",
+        icon: "MessageSquare",
+      },
       { type: "link", label: "User Feedback", path: "/admin/store/contact-messages", icon: "Mail" },
       { type: "link", label: "Safety Emergency Reports", path: "/admin/store/safety-emergency-reports", icon: "AlertTriangle" },
     ],
   },
   {
     type: "section",
-    label: "REPORT MANAGEMENT",
+    label: "MARKETING",
     items: [
+      {
+        type: "link",
+        label: "Seller Coupons & Offers",
+        path: "/admin/store/coupons",
+        icon: "Gift",
+      },
+      { type: "link", label: "Referral Settings", path: "/admin/store/referral-settings", icon: "Gift" },
+      { type: "link", label: "Landing Page Management", path: "/admin/store/hero-banner-management", icon: "Image" },
+      { type: "link", label: "Promotional Banners", path: "/admin/store/promotional-banner", icon: "Megaphone" },
+    ],
+  },
+  {
+    type: "section",
+    label: "FINANCE & REPORTS",
+    items: [
+      { type: "link", label: "Wallet Dashboard", path: "/admin/store/wallet-dashboard", icon: "Wallet" },
       { type: "link", label: "Transaction Report", path: "/admin/store/transaction-report", icon: "FileText" },
       { type: "link", label: "Order Report", path: "/admin/store/order-report/regular", icon: "FileText" },
       { type: "link", label: "Tax Report", path: "/admin/store/tax-report", icon: "Receipt" },
+      { type: "link", label: "Restaurant Withdraws", path: "/admin/store/restaurant-withdraws", icon: "CreditCard" },
       {
         type: "expandable",
         label: "Restaurant Report",
@@ -190,56 +178,14 @@ export const adminSidebarMenu = [
   },
   {
     type: "section",
-    label: "TRANSACTION MANAGEMENT",
-    items: [
-      { type: "link", label: "Restaurant Withdraws", path: "/admin/store/restaurant-withdraws", icon: "CreditCard" },
-    ],
-  },
-  {
-    type: "section",
-    label: "BANNER SETTINGS",
-    items: [
-      { type: "link", label: "Landing Page Management", path: "/admin/store/hero-banner-management", icon: "Image" },
-      { type: "link", label: "Promotional Banners", path: "/admin/store/promotional-banner", icon: "Megaphone" },
-// { type: "link", label: "General Banners", path: "/admin/store/banners", icon: "Image" },
-    ],
-  },
-  {
-    type: "section",
-    label: "DINING MANAGEMENT",
-    items: [
-      // { type: "link", label: "Dining Banners", path: "/admin/store/dining-management", icon: "UtensilsCrossed" },
-      // { type: "link", label: "Dining List", path: "/admin/store/dining-list", icon: "FileText" },
-    ],
-  },
-  {
-    type: "section",
-    label: "SYSTEM SETTINGS",
+    label: "SETTINGS",
     items: [
       { type: "link", label: "Broadcast Notification", path: "/admin/store/broadcast-notification", icon: "Bell" },
       { type: "link", label: "Business Setup", path: "/admin/store/business-setup", icon: "Settings" },
       { type: "link", label: "Survey", path: "/admin/store/survey", icon: "FileText" },
-    ],
-  },
-  {
-    type: "section",
-    label: "SUPER POWERS",
-    items: [
       { type: "link", label: "Feature Settings", path: "/admin/store/feature-settings", icon: "Settings" },
       { type: "link", label: "Power Scanning", path: "/admin/store/power-scanning", icon: "Zap" },
-    ],
-  },
-  {
-    type: "section",
-    label: "ADMIN ACCESS",
-    items: [
       { type: "link", label: "Sub Admin List", path: "/admin/store/employees", icon: "UserCog" },
-    ],
-  },
-  {
-    type: "section",
-    label: "PAGES & SOCIAL MEDIA",
-    items: [
       { type: "link", label: "About Us", path: "/admin/store/pages-social-media/about", icon: "Globe" },
       { type: "link", label: "Terms & Conditions", path: "/admin/store/pages-social-media/terms", icon: "FileText" },
       { type: "link", label: "Privacy Policy", path: "/admin/store/pages-social-media/privacy", icon: "Lock" },
