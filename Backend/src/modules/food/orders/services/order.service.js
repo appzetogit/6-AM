@@ -2342,6 +2342,17 @@ export async function listOrdersAdmin(query) {
         filter["payment.method"] = "cash";
         filter.orderStatus = { $in: ["created", "confirmed", "delivered"] };
         break;
+      case "scheduled":
+        // Booked for a future slot and still on track — not yet due, not
+        // abandoned, not cancelled.
+        filter.scheduledAt = { $gt: new Date() };
+        filter.orderStatus = { $nin: ["pending_payment", ...terminalCancelledStatuses] };
+        break;
+      case "abandoned":
+        // Checkout was started (an order row exists) but payment was never
+        // completed — the "all" branch above hides these by default.
+        filter.orderStatus = "pending_payment";
+        break;
       default:
         break;
     }

@@ -754,6 +754,21 @@ export async function createAdminOffer(req, res, next) {
 }
 
 /**
+ * GET /wallet-dashboard?year=2026 — platform-wide wallet ledger, aggregated
+ * per calendar month (recharge/cashback/refund/referral/spent), plus the
+ * current total wallet balance across every customer and today's spend.
+ */
+export async function getWalletDashboardController(req, res, next) {
+    try {
+        const { getWalletDashboard } = await import('../services/walletDashboard.service.js');
+        const data = await getWalletDashboard({ year: req.query?.year });
+        res.status(200).json({ success: true, message: 'Wallet dashboard fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
  * POST /product-subscriptions/run — manually runs the subscription sweep:
  * extends occurrence generation for active subscriptions and places orders
  * for any occurrence whose scheduled delivery date has arrived. Lets ops

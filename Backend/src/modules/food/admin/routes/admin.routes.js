@@ -302,6 +302,7 @@ router.get('/offers', adminController.getAllOffers);
 router.post('/offers', adminController.createAdminOffer);
 router.post('/offers/monthly/run', adminController.runMonthlyOfferSweep);
 router.post('/product-subscriptions/run', adminController.runProductSubscriptionSweep);
+router.get('/reports/wallet-dashboard', adminController.getWalletDashboardController);
 router.post('/pos/orders', createAdminPosOrderController);
 
 router.get('/surveys', surveyController.listSurveysController);
