@@ -3,25 +3,19 @@ import { NavLink, useNavigate, useLocation } from "react-router-dom"
 import {
   Store,
   FileText,
-  History,
-  Package,
-  LayoutGrid,
   Truck,
   Receipt,
   MessageSquare,
-  Clock,
-  MapPin,
-  LifeBuoy,
   LogOut,
-  FileCheck,
-  Star,
-  Edit,
   Building2,
   IndianRupee,
-  Info,
   Compass,
-  Wallet,
   CreditCard,
+  LayoutDashboard,
+  ChevronDown,
+  Gift,
+  Palette,
+  Settings as SettingsIcon,
 } from "lucide-react"
 import { restaurantAPI } from "@food/api"
 import { getCompanyName, getModuleLogoUrl, getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
@@ -37,46 +31,57 @@ const extractRestaurantPayload = (response) =>
   response?.data?.data ||
   null
 
+// Mirrors DeOnde's vendor sidebar grouping (Overview / Management "Outlet" /
+// Delivery / Finance / Growth / Configuration), built only from routes that
+// actually exist in RestaurantRouter.jsx — no placeholder links for pages
+// (Cuisine "Brands"/"Item Labels", a Customers list) this panel doesn't have.
 const sections = [
   {
-    title: "MAIN",
+    title: "OVERVIEW",
     items: [
-      { name: "Live orders", path: BASE, icon: FileText, exact: true },
-      { name: "Inventory", path: `${BASE}/inventory`, icon: Package },
-      { name: "Payouts", path: `${BASE}/hub-finance`, icon: Wallet, exact: true },
+      { name: "Dashboard", path: `${BASE}/dashboard`, icon: LayoutDashboard, exact: true },
+      {
+        name: "Orders",
+        icon: FileText,
+        type: "expandable",
+        subItems: [
+          { name: "Live orders", path: BASE, exact: true },
+          { name: "Order history", path: `${BASE}/orders/all` },
+        ],
+      },
+    ],
+  },
+  {
+    title: "MANAGEMENT",
+    items: [
+      {
+        name: "Outlet",
+        icon: Store,
+        type: "expandable",
+        subItems: [
+          { name: "All Outlet", path: `${BASE}/manage-outlets` },
+          { name: "Menu", path: `${BASE}/inventory` },
+          { name: "Cuisine", path: `${BASE}/edit-cuisines` },
+          { name: "Categories", path: `${BASE}/menu-categories` },
+          { name: "Reviews", path: `${BASE}/ratings-reviews` },
+        ],
+      },
+      {
+        name: "Delivery",
+        icon: Truck,
+        type: "expandable",
+        subItems: [
+          { name: "Delivery settings", path: `${BASE}/delivery-settings` },
+          { name: "Rush hour", path: `${BASE}/rush-hour` },
+          { name: "Zone setup", path: `${BASE}/zone-setup` },
+        ],
+      },
       { name: "Explore", path: `${BASE}/explore`, icon: Compass },
     ],
   },
   {
-    title: "MANAGE OUTLET",
-    items: [
-      { name: "Outlet info", path: `${BASE}/outlet-info`, icon: Info },
-      { name: "Outlet timings", path: `${BASE}/outlet-timings`, icon: Clock },
-      { name: "Menu categories", path: `${BASE}/menu-categories`, icon: LayoutGrid },
-      { name: "Offers & Coupons", path: `${BASE}/coupon`, icon: FileCheck },
-    ],
-  },
-  {
-    title: "SETTINGS",
-    items: [
-      { name: "Delivery settings", path: `${BASE}/delivery-settings`, icon: Truck },
-      { name: "Zone setup", path: `${BASE}/zone-setup`, icon: MapPin },
-    ],
-  },
-  {
-    title: "ORDERS",
-    items: [
-      { name: "Order history", path: `${BASE}/orders/all`, icon: History },
-      { name: "Complaints", path: `${BASE}/feedback?tab=complaints`, icon: Star },
-      { name: "Reviews", path: `${BASE}/feedback`, icon: MessageSquare, exact: true },
-    ],
-  },
-  {
-    title: "HELP",
-    items: [
-      { name: "Support", path: `${BASE}/help-centre/support`, icon: LifeBuoy },
-      { name: "Share your feedback", path: `${BASE}/share-feedback`, icon: Edit },
-    ],
+    title: "GROWTH",
+    items: [{ name: "Offers & Coupons", path: `${BASE}/coupon`, icon: Gift }],
   },
   {
     title: "FINANCE",
@@ -87,6 +92,30 @@ const sections = [
       { name: "Subscription", path: `${BASE}/subscription`, icon: CreditCard },
     ],
   },
+  {
+    title: "CONFIGURATION",
+    items: [
+      { name: "Outlet info", path: `${BASE}/outlet-info`, icon: Palette },
+      {
+        name: "Settings",
+        icon: SettingsIcon,
+        type: "expandable",
+        subItems: [
+          { name: "Outlet timings", path: `${BASE}/outlet-timings` },
+          { name: "Support", path: `${BASE}/help-centre/support` },
+          { name: "Share your feedback", path: `${BASE}/share-feedback` },
+        ],
+      },
+    ],
+  },
+]
+
+// Quick-access icon row pinned above the profile footer. Only shortcuts that
+// map to a real existing page are here — no placeholder tiles for features
+// (POS, a dedicated Apps page) this panel doesn't have yet.
+const MORE_TOOLS = [
+  { label: "Chat", icon: MessageSquare, path: `${BASE}/help-centre/support` },
+  { label: "Subscr.", icon: CreditCard, path: `${BASE}/subscription` },
 ]
 
 function isItemActive(item, pathname, search) {
@@ -129,6 +158,25 @@ export default function DesktopSidebar() {
   const [restaurantData, setRestaurantData] = useState(null)
   const [companyName, setCompanyName] = useState(() => getCompanyName() || "Restaurant")
   const [logoUrl, setLogoUrl] = useState(() => getModuleLogoUrl("restaurant"))
+  const [expandedSections, setExpandedSections] = useState(() => {
+    // Auto-expand whichever expandable section already contains the active route.
+    const initial = {}
+    sections.forEach((section) => {
+      section.items.forEach((item) => {
+        if (item.type === "expandable") {
+          const hasActiveSub = item.subItems.some((sub) =>
+            isItemActive(sub, window.location.pathname, window.location.search)
+          )
+          if (hasActiveSub) initial[item.name] = true
+        }
+      })
+    })
+    return initial
+  })
+
+  const toggleSection = (name) => {
+    setExpandedSections((prev) => ({ ...prev, [name]: !prev[name] }))
+  }
 
   // Lenis (and the main layout scroll) steal wheel events — handle them here so
   // mouse/trackpad scrolling works without relying on the scrollbar thumb.
@@ -250,6 +298,62 @@ export default function DesktopSidebar() {
             </h3>
             <ul className="space-y-1">
               {section.items.map((item) => {
+                if (item.type === "expandable") {
+                  const isExpanded = expandedSections[item.name] || false
+                  const hasActiveSub = item.subItems.some((sub) =>
+                    isItemActive(sub, location.pathname, location.search)
+                  )
+
+                  return (
+                    <li key={`${section.title}-${item.name}`}>
+                      <button
+                        type="button"
+                        onClick={() => toggleSection(item.name)}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200 ${
+                          hasActiveSub
+                            ? "bg-green-50 text-green-700"
+                            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <item.icon
+                            className={`w-4 h-4 shrink-0 ${hasActiveSub ? "text-green-600" : "text-gray-400"}`}
+                          />
+                          <span className={`text-sm truncate ${hasActiveSub ? "font-semibold" : "font-medium"}`}>
+                            {item.name}
+                          </span>
+                        </div>
+                        <ChevronDown
+                          className={`w-4 h-4 shrink-0 text-gray-400 transition-transform duration-200 ${
+                            isExpanded ? "rotate-0" : "-rotate-90"
+                          }`}
+                        />
+                      </button>
+                      {isExpanded && (
+                        <ul className="ml-4 mt-1 space-y-1 pl-3 border-l border-gray-200">
+                          {item.subItems.map((sub) => {
+                            const isSubActive = isItemActive(sub, location.pathname, location.search)
+                            return (
+                              <li key={sub.path}>
+                                <NavLink
+                                  to={sub.path}
+                                  className={`flex items-center px-3 py-1.5 rounded-lg text-[13px] transition-all duration-200 ${
+                                    isSubActive
+                                      ? "bg-green-50 text-green-700 font-semibold"
+                                      : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                                  }`}
+                                >
+                                  {sub.name}
+                                </NavLink>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </li>
+                  )
+                }
+
                 const isActive = isItemActive(item, location.pathname, location.search)
 
                 return (
@@ -277,9 +381,27 @@ export default function DesktopSidebar() {
             </ul>
           </div>
         ))}
+
+        <div className="pt-3 border-t border-gray-100">
+          <p className="px-1 mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">
+            More Tools
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {MORE_TOOLS.map((tool) => (
+              <NavLink
+                key={tool.path}
+                to={tool.path}
+                className="flex flex-col items-center gap-1.5 rounded-xl border border-gray-200 py-2.5 text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+              >
+                <tool.icon className="w-4 h-4" />
+                <span className="text-[11px] font-medium">{tool.label}</span>
+              </NavLink>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <div className="p-4 bg-white border-t border-gray-100">
+      <div className="shrink-0 p-4 pt-3 bg-white border-t border-gray-100">
         <button
           type="button"
           onClick={() => navigate(`${BASE}/outlet-info`)}

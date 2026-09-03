@@ -72,6 +72,7 @@ export default function FoodsList() {
   const [editingFood, setEditingFood] = useState(null)
   const [submittingFood, setSubmittingFood] = useState(false)
   const [categoryOptions, setCategoryOptions] = useState([])
+  const [selectedCategoryId, setSelectedCategoryId] = useState("all")
   const [categorySearch, setCategorySearch] = useState("")
   const [categoryPopoverOpen, setCategoryPopoverOpen] = useState(false)
   const [selectedImageFile, setSelectedImageFile] = useState(null)
@@ -184,8 +185,14 @@ export default function FoodsList() {
     try {
       setLoading(true)
 
-      const params = { page: currentPage, limit: pageSize }
-      if (selectedRestaurant !== "all") params.restaurantId = selectedRestaurant
+      // With one restaurant selected the category rail needs the whole
+      // catalog in memory to count and filter correctly — not just one page
+      // of it — so fetch a much larger slice than the table itself paginates.
+      const isSingleRestaurant = selectedRestaurant !== "all"
+      const params = isSingleRestaurant
+        ? { page: 1, limit: 500 }
+        : { page: currentPage, limit: pageSize }
+      if (isSingleRestaurant) params.restaurantId = selectedRestaurant
       if (debouncedSearchQuery) params.search = debouncedSearchQuery
 
       const foodsRes = await adminAPI.getFoods(params)
@@ -213,6 +220,7 @@ export default function FoodsList() {
             description: f.description || "",
             preparationTime: f.preparationTime || "",
             isAvailable: f.isAvailable !== false,
+            subscriptionEnabled: f.subscriptionEnabled === true,
             createdAt: f.createdAt,
             updatedAt: f.updatedAt,
           }))
@@ -297,9 +305,37 @@ export default function FoodsList() {
     return Math.ceil(totalFoods / pageSize)
   }, [totalFoods, pageSize])
 
+  // Category rail — built straight from the loaded catalog itself (each food
+  // already carries its own categoryId/categoryName), not from the separate
+  // category-picker list, which is only populated while the add/edit modal
+  // is open and would otherwise be empty here.
+  const categoriesForRail = useMemo(() => {
+    const byId = new Map()
+    foods.forEach((food) => {
+      const id = food.categoryId || "uncategorized"
+      const name = food.categoryId ? (food.categoryName || "Unnamed") : "Uncategorized"
+      const existing = byId.get(id)
+      if (existing) existing.count += 1
+      else byId.set(id, { id, name, count: 1 })
+    })
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name))
+  }, [foods])
+
+  const visibleFoods = useMemo(() => {
+    if (selectedCategoryId === "all") return foods
+    if (selectedCategoryId === "uncategorized") return foods.filter((f) => !f.categoryId)
+    return foods.filter((f) => f.categoryId === selectedCategoryId)
+  }, [foods, selectedCategoryId])
+
   useEffect(() => {
     setCurrentPage(1)
   }, [searchQuery, selectedRestaurant, pageSize])
+
+  // A category rail only makes sense once we're looking at one restaurant's
+  // catalog — clear any stale selection when that scope changes or is left.
+  useEffect(() => {
+    setSelectedCategoryId("all")
+  }, [selectedRestaurant])
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -600,6 +636,44 @@ export default function FoodsList() {
     }
   }
 
+  const [togglingFoodId, setTogglingFoodId] = useState(null)
+
+  const handleToggleStatus = async (food) => {
+    if (!ensureActionAccess("edit")) return
+    const nextAvailable = !food.isAvailable
+    setTogglingFoodId(food.id)
+    // Optimistic — flip it locally first so the switch feels instant, then
+    // reconcile with the server; on failure, put it back.
+    setFoods((prev) => prev.map((f) => (f.id === food.id ? { ...f, isAvailable: nextAvailable, status: nextAvailable } : f)))
+    try {
+      await adminAPI.updateFood(food._id || food.id, { isAvailable: nextAvailable })
+    } catch (error) {
+      debugError("Error toggling food availability:", error)
+      toast.error(error?.response?.data?.message || "Failed to update status")
+      setFoods((prev) => prev.map((f) => (f.id === food.id ? { ...f, isAvailable: food.isAvailable, status: food.isAvailable } : f)))
+    } finally {
+      setTogglingFoodId(null)
+    }
+  }
+
+  const [togglingSubscriptionId, setTogglingSubscriptionId] = useState(null)
+
+  const handleToggleSubscription = async (food) => {
+    if (!ensureActionAccess("edit")) return
+    const nextEnabled = !food.subscriptionEnabled
+    setTogglingSubscriptionId(food.id)
+    setFoods((prev) => prev.map((f) => (f.id === food.id ? { ...f, subscriptionEnabled: nextEnabled } : f)))
+    try {
+      await adminAPI.updateFood(food._id || food.id, { subscriptionEnabled: nextEnabled })
+    } catch (error) {
+      debugError("Error toggling subscription availability:", error)
+      toast.error(error?.response?.data?.message || "Failed to update subscription setting")
+      setFoods((prev) => prev.map((f) => (f.id === food.id ? { ...f, subscriptionEnabled: food.subscriptionEnabled } : f)))
+    } finally {
+      setTogglingSubscriptionId(null)
+    }
+  }
+
   const openBulkUploadModal = () => {
     if (!ensureActionAccess("create")) return
     setBulkUploadRestaurantId(selectedRestaurant !== "all" ? selectedRestaurant : "")
@@ -836,8 +910,37 @@ export default function FoodsList() {
         </div>
       </div>
 
+      <div className="flex gap-4 items-start">
+      {isRestaurantSelected && categoriesForRail.length > 0 && (
+        <div className="w-56 shrink-0 bg-white rounded-xl shadow-sm border border-slate-200 p-3">
+          <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Categories</p>
+          <button
+            type="button"
+            onClick={() => setSelectedCategoryId("all")}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              selectedCategoryId === "all" ? "bg-orange-50 text-orange-700" : "text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <span>All</span>
+            <span className="text-xs">{foods.length}</span>
+          </button>
+          {categoriesForRail.map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setSelectedCategoryId(cat.id)}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                selectedCategoryId === cat.id ? "bg-orange-50 text-orange-700" : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <span className="truncate">{cat.name}</span>
+              <span className="text-xs shrink-0 ml-2">{cat.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="flex-1 min-w-0 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         {isRestaurantSelected && allPageSelected && totalFoods > foods.length && !selectAllForRestaurant && (
           <div className="px-6 py-3 bg-blue-50 border-b border-blue-100 text-sm text-blue-800 flex flex-wrap items-center gap-2">
             <span>All {foods.length} items on this page are selected.</span>
@@ -899,6 +1002,15 @@ export default function FoodsList() {
                 <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                   Category
                 </th>
+                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  Price
+                </th>
+                <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  Subscription
+                </th>
                 <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                   Action
                 </th>
@@ -907,16 +1019,16 @@ export default function FoodsList() {
             <tbody className="bg-white divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={isRestaurantSelected ? 7 : 6} className="px-6 py-20 text-center">
+                  <td colSpan={isRestaurantSelected ? 10 : 9} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
                       <p className="text-sm text-slate-500">Loading foods...</p>
                     </div>
                   </td>
                 </tr>
-              ) : foods.length === 0 ? (
+              ) : visibleFoods.length === 0 ? (
                 <tr>
-                  <td colSpan={isRestaurantSelected ? 7 : 6} className="px-6 py-20 text-center">
+                  <td colSpan={isRestaurantSelected ? 10 : 9} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <p className="text-lg font-semibold text-slate-700 mb-1">No Data Found</p>
                       <p className="text-sm text-slate-500">No food items match your search or restaurant filter</p>
@@ -924,7 +1036,7 @@ export default function FoodsList() {
                   </td>
                 </tr>
               ) : (
-                foods.map((food, index) => (
+                visibleFoods.map((food, index) => (
                   <tr
                     key={food.id}
                     className="hover:bg-slate-50 transition-colors"
@@ -972,6 +1084,49 @@ export default function FoodsList() {
                         <span className="text-sm font-medium text-slate-800">{food.categoryName || "-"}</span>
                       </div>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm font-semibold text-slate-900">
+                        ₹{Number(food.price || 0).toLocaleString("en-IN")}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleStatus(food)}
+                        disabled={togglingFoodId === food.id}
+                        role="switch"
+                        aria-checked={food.isAvailable}
+                        title={food.isAvailable ? "Available — click to mark unavailable" : "Unavailable — click to mark available"}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-60 ${
+                          food.isAvailable ? "bg-emerald-500" : "bg-slate-300"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                            food.isAvailable ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSubscription(food)}
+                        disabled={togglingSubscriptionId === food.id}
+                        role="switch"
+                        aria-checked={food.subscriptionEnabled}
+                        title={food.subscriptionEnabled ? "Subscribable — click to disable" : "Not subscribable — click to enable"}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-60 ${
+                          food.subscriptionEnabled ? "bg-blue-500" : "bg-slate-300"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                            food.subscriptionEnabled ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button
@@ -1009,7 +1164,17 @@ export default function FoodsList() {
           </table>
         </div>
 
-        {!loading && totalFoods > 0 && (
+        {!loading && isRestaurantSelected && foods.length > 0 && (
+          <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 text-sm text-slate-600">
+            Showing{" "}
+            <span className="font-semibold text-slate-800">{visibleFoods.length}</span>
+            {selectedCategoryId !== "all" ? " in this category" : ""}
+            {" "}of{" "}
+            <span className="font-semibold text-slate-800">{foods.length}</span>
+            {" "}total items for this restaurant
+          </div>
+        )}
+        {!loading && !isRestaurantSelected && totalFoods > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
             <div className="text-sm text-slate-600">
               Showing{" "}
@@ -1059,6 +1224,7 @@ export default function FoodsList() {
             </div>
           </div>
         )}
+      </div>
       </div>
 
       <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>

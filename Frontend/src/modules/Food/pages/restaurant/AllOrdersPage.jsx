@@ -23,14 +23,20 @@ const debugError = (...args) => {}
 
 const ORDERS_PAGE_LIMIT = 10
 
-const ORDER_STATUS_API_MAP = {
-  preparing: "preparing,confirmed",
-  ready: "ready_for_pickup",
-  "out-for-delivery": "picked_up,reached_pickup,reached_drop",
-  delivered: "delivered",
-  rejected: "cancelled_by_restaurant",
-  cancelled: "cancelled_by_user,cancelled_by_restaurant,cancelled_by_admin",
-}
+// Pill tabs mirroring DeOnde's Orders page. "Scheduled" isn't a real
+// orderStatus value — it filters by scheduledAt on the backend instead.
+// "Abandoned" (pending_payment) is intentionally not offered here: the
+// restaurant API deliberately never exposes unpaid orders to sellers
+// (see canExposeOrderToRestaurant on the backend).
+const STATUS_TABS = [
+  { id: "new", label: "New Requests", apiStatus: "created" },
+  { id: "scheduled", label: "Scheduled", scheduled: true },
+  { id: "confirmed", label: "Confirmed", apiStatus: "confirmed,preparing" },
+  { id: "ready", label: "Ready for Delivery", apiStatus: "ready_for_pickup" },
+  { id: "on-the-way", label: "On The Way", apiStatus: "reached_pickup,picked_up,reached_drop" },
+  { id: "delivered", label: "Delivered", apiStatus: "delivered" },
+  { id: "cancelled", label: "Cancelled", apiStatus: "cancelled_by_user,cancelled_by_restaurant,cancelled_by_admin" },
+]
 
 const formatMoney = (value) => `₹${Number(value || 0).toFixed(2)}`
 
@@ -78,20 +84,11 @@ const dateRangeOptions = [
 
 // Filter categories and options
 const filterCategories = [
-  { id: "Order status", label: "Order status" },
   { id: "Ratings", label: "Ratings" },
   { id: "Complaints", label: "Complaints" }
 ]
 
 const filterOptions = {
-  "Order status": [
-    { id: "preparing", label: "Preparing", key: "orderStatus" },
-    { id: "ready", label: "Ready", key: "orderStatus" },
-    { id: "out-for-delivery", label: "Out for delivery", key: "orderStatus" },
-    { id: "delivered", label: "Delivered", key: "orderStatus" },
-    { id: "rejected", label: "Rejected", key: "orderStatus" },
-    { id: "cancelled", label: "Cancelled", key: "orderStatus" }
-  ],
   "Ratings": [
     { id: "5-star", label: "5★ or less", key: "ratings", value: 5 },
     { id: "4-star", label: "4★ or less", key: "ratings", value: 4 },
@@ -121,21 +118,22 @@ export default function AllOrdersPage() {
   const [startDate, setStartDate] = useState(null)
   const [endDate, setEndDate] = useState(null)
   const calendarRef = useRef(null)
-  
+
+  // Status pill tabs (mirrors DeOnde's Orders page)
+  const [activeTab, setActiveTab] = useState("new")
+
   // Filter states
   const [showFilterPopup, setShowFilterPopup] = useState(false)
-  const [activeFilterCategory, setActiveFilterCategory] = useState("Order status")
+  const [activeFilterCategory, setActiveFilterCategory] = useState("Ratings")
   const [filterSearch, setFilterSearch] = useState("")
   const [isApplyingFilters, setIsApplyingFilters] = useState(false)
   const [filters, setFilters] = useState({
-    orderStatus: [],
     ratings: [],
     kptDelay: [],
     complaints: [],
     orderType: []
   })
   const [appliedFilters, setAppliedFilters] = useState({
-    orderStatus: [],
     ratings: [],
     kptDelay: [],
     complaints: [],
@@ -256,6 +254,15 @@ export default function AllOrdersPage() {
       Math.round((subtotal + packagingFee - commission) * 100) / 100,
     )
 
+    const paymentMethod = String(order.payment?.method || "").toLowerCase()
+    const paymentLabel = paymentMethod === "cash"
+      ? "Cash"
+      : paymentMethod === "wallet"
+      ? "Wallet"
+      : paymentMethod
+      ? "Online"
+      : "N/A"
+
     return {
       id: order.orderId || order._id?.toString() || '',
       status,
@@ -267,6 +274,7 @@ export default function AllOrdersPage() {
       items,
       netPayout: Number(order.finance?.netPayout ?? fallbackNetPayout),
       totalPrice: Number(pricing.total) || 0,
+      payment: paymentLabel,
       reason,
       note: getRestaurantCookingNote(order),
       tags: tags.length > 0 ? tags : undefined,
@@ -275,14 +283,7 @@ export default function AllOrdersPage() {
     }
   }, [restaurantData])
 
-  const buildOrderStatusParam = useCallback(() => {
-    if (!appliedFilters.orderStatus.length) return undefined
-    const statuses = appliedFilters.orderStatus
-      .flatMap((statusId) => (ORDER_STATUS_API_MAP[statusId] || "").split(","))
-      .map((value) => value.trim())
-      .filter(Boolean)
-    return statuses.length > 0 ? [...new Set(statuses)].join(",") : undefined
-  }, [appliedFilters.orderStatus])
+  const activeStatusTab = STATUS_TABS.find((tab) => tab.id === activeTab)
 
   // Fetch orders from backend
   useEffect(() => {
@@ -301,9 +302,10 @@ export default function AllOrdersPage() {
           params.endDate = endDate.toISOString()
         }
 
-        const orderStatusParam = buildOrderStatusParam()
-        if (orderStatusParam) {
-          params.orderStatus = orderStatusParam
+        if (activeStatusTab?.scheduled) {
+          params.scheduled = "true"
+        } else if (activeStatusTab?.apiStatus) {
+          params.orderStatus = activeStatusTab.apiStatus
         }
 
         const trimmedSearch = debouncedSearch
@@ -347,13 +349,13 @@ export default function AllOrdersPage() {
     }
 
     fetchOrders()
-  }, [ordersPage, selectedDateRange, startDate, endDate, debouncedSearch, buildOrderStatusParam, transformOrder])
+  }, [ordersPage, selectedDateRange, startDate, endDate, debouncedSearch, activeStatusTab, transformOrder])
 
   // Realtime: prepend new orders on the first page when no restrictive filters are active
   useEffect(() => {
     if (!newOrder) return
     const hasDateFilter = !selectedDateRange?.lifetime
-    const hasStatusFilter = appliedFilters.orderStatus.length > 0
+    const hasStatusFilter = activeTab !== "new"
     const hasSearch = Boolean(debouncedSearch)
     if (ordersPage !== 1 || hasDateFilter || hasStatusFilter || hasSearch) return
 
@@ -366,7 +368,11 @@ export default function AllOrdersPage() {
       const transformed = transformOrder(newOrder)
       return [transformed, ...prev]
     })
-  }, [newOrder, transformOrder, ordersPage, selectedDateRange, appliedFilters.orderStatus, debouncedSearch])
+  }, [newOrder, transformOrder, ordersPage, selectedDateRange, activeTab, debouncedSearch])
+
+  useEffect(() => {
+    setOrdersPage(1)
+  }, [activeTab])
 
   // Close calendar when clicking outside
   useEffect(() => {
@@ -462,7 +468,6 @@ export default function AllOrdersPage() {
 
   const handleClearFilters = () => {
     const cleared = {
-      orderStatus: [],
       ratings: [],
       kptDelay: [],
       complaints: [],
@@ -544,13 +549,33 @@ export default function AllOrdersPage() {
             <ArrowLeft className="w-6 h-6 text-gray-900" />
           </button>
           <div className="flex-1">
-            <p className="text-sm text-gray-600">Showing order history for</p>
+            <p className="text-sm text-gray-600 hidden md:block">Showing order history for</p>
             <div className="flex items-center gap-2">
               <h1 className="text-base md:text-xl font-bold text-gray-900">
-                {restaurantData?.name || 'Restaurant'}
+                Orders ({pagination.total || 0})
               </h1>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Status pill tabs */}
+      <div className="px-4 pt-3">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          {STATUS_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`shrink-0 px-3.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                activeTab === tab.id
+                  ? "bg-orange-500 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -646,18 +671,87 @@ export default function AllOrdersPage() {
           </div>
         )}
         
-        {!loading && !error && (
+        {!loading && !error && filteredOrders.length === 0 && (
+          <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
+            <div className="flex flex-col items-center gap-3">
+              <p className="text-gray-900 font-medium text-sm">No orders found</p>
+              <p className="text-gray-500 text-xs">
+                Try changing the date range, tab, or search filters.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Desktop table */}
+        {!loading && !error && filteredOrders.length > 0 && (
+          <div className="hidden md:block overflow-x-auto rounded-lg border border-gray-200">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Order ID</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Outlet</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Customer</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Time</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Amount</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Payment</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredOrders.map((order) => (
+                  <tr
+                    key={order.id}
+                    onClick={() => setSelectedOrderId(order.mongoId || order.id)}
+                    className={`border-b border-gray-100 last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors ${
+                      selectedOrderId && (selectedOrderId === order.mongoId || selectedOrderId === order.id)
+                        ? "bg-blue-50/60"
+                        : "bg-white"
+                    }`}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-semibold text-gray-900">{order.id}</span>
+                        <button
+                          onClick={(e) => handleCopyOrderId(order.id, e)}
+                          className="p-1 rounded hover:bg-gray-200 transition-colors"
+                          aria-label="Copy order ID"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-gray-400" />
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700 max-w-[180px] truncate">{order.restaurant}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{order.customer}</td>
+                    <td className="px-4 py-3">
+                      <span className="px-2.5 py-1 rounded text-xs font-bold" style={getStatusColor(order.status)}>
+                        {order.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{order.date}, {order.time}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{formatMoney(order.totalPrice)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{order.payment}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setSelectedOrderId(order.mongoId || order.id)}
+                        className="p-1.5 rounded-md hover:bg-gray-200 transition-colors"
+                        aria-label="View order"
+                      >
+                        <ChevronRight className="w-4 h-4 text-gray-500" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Mobile cards */}
+        {!loading && !error && filteredOrders.length > 0 && (
           <AnimatePresence mode="popLayout">
-            {filteredOrders.length === 0 ? (
-              <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-                <div className="flex flex-col items-center gap-3">
-                  <p className="text-gray-900 font-medium text-sm">No orders found</p>
-                  <p className="text-gray-500 text-xs">
-                    Try changing the date range or search filters.
-                  </p>
-                </div>
-              </div>
-            ) : filteredOrders.map((order, index) => (
+            <div className="md:hidden space-y-3">
+            {filteredOrders.map((order, index) => (
             <motion.div
               key={order.id}
               layout
@@ -760,6 +854,7 @@ export default function AllOrdersPage() {
             )}
             </motion.div>
             ))}
+            </div>
           </AnimatePresence>
         )}
 

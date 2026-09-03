@@ -46,6 +46,7 @@ import {
   IndianRupee,
   PiggyBank,
   Lock,
+  RefreshCw,
 } from "lucide-react"
 import { cn } from "@food/utils/utils"
 import { Input } from "@food/components/ui/input"
@@ -128,6 +129,15 @@ const buildLabelDictionary = (menu = []) => {
 }
 
 const SIDEBAR_LABEL_BY_PATH = buildLabelDictionary(adminSidebarMenu)
+
+// Quick-access icon row pinned under the scrollable menu. Only shortcuts that
+// map to a real existing page are here — no placeholder tiles for features
+// this app doesn't have.
+const MORE_TOOLS = [
+  { label: "Chat", icon: MessageSquare, path: "/admin/store/support-tickets" },
+  { label: "POS", icon: CreditCard, path: "/admin/store/point-of-sale" },
+  { label: "Subscr.", icon: RefreshCw, path: "/admin/store/sellers/subscription-settings" },
+]
 
 export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange }) {
   const location = useLocation()
@@ -1037,6 +1047,26 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
             })
           )}
         </nav>
+
+        {!isCollapsed && (
+          <div className="shrink-0 border-t border-gray-200 px-3 py-3">
+            <p className="px-1 mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">
+              More Tools
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {MORE_TOOLS.map((tool) => (
+                <Link
+                  key={tool.path}
+                  to={tool.path}
+                  className="flex flex-col items-center gap-1.5 rounded-xl border border-gray-200 py-2.5 text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+                >
+                  <tool.icon className="w-4 h-4" />
+                  <span className="text-[11px] font-medium">{tool.label}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </>
   )

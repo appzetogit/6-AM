@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { getRestaurantCookingNote } from "@food/utils/orderCookingNote";
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders";
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar";
+import SellerGettingStarted from "@food/components/restaurant/SellerGettingStarted";
 import NewOrderAcceptCard from "@food/components/restaurant/NewOrderAcceptCard";
 import { restaurantAPI, diningAPI } from "@food/api";
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications";
@@ -1962,6 +1963,10 @@ export default function OrdersMain() {
             />
           </div>
         </div>
+      </div>
+
+      <div className="px-4 md:px-6 pt-1">
+        <SellerGettingStarted />
       </div>
 
       {/* Top Filter Bar */}

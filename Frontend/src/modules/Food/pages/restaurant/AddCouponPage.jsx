@@ -34,6 +34,8 @@ export default function AddCouponPage(props) {
     perUserLimit: "",
     startDate: "",
     endDate: "",
+    isMonthly: false,
+    notifyDaysBeforeNextMonth: "23",
   })
 
   const [errors, setErrors] = useState({})
@@ -67,8 +69,12 @@ export default function AddCouponPage(props) {
       e.discountValue = "Enter a valid discount value"
     if (formData.discountType === "percentage" && Number(formData.discountValue) > 100)
       e.discountValue = "Percentage cannot exceed 100"
-    if (!formData.startDate) e.startDate = "Start date is required"
-    if (!formData.endDate) e.endDate = "End date is required"
+    // A monthly offer auto-fills its window to the current calendar month
+    // when left blank, so dates aren't mandatory for it.
+    if (!formData.isMonthly) {
+      if (!formData.startDate) e.startDate = "Start date is required"
+      if (!formData.endDate) e.endDate = "End date is required"
+    }
     if (formData.startDate && formData.startDate < todayDateString)
       e.startDate = "Start date cannot be in the past"
     if (formData.startDate && formData.endDate && new Date(formData.startDate) > new Date(formData.endDate))
@@ -91,6 +97,10 @@ export default function AddCouponPage(props) {
         perUserLimit: formData.perUserLimit ? Number(formData.perUserLimit) : undefined,
         startDate: formData.startDate || undefined,
         endDate: formData.endDate || undefined,
+        isMonthly: formData.isMonthly,
+        notifyDaysBeforeNextMonth: formData.isMonthly
+          ? Number(formData.notifyDaysBeforeNextMonth) || 23
+          : undefined,
         status: "active"
       }
       await restaurantAPI.createMyOffer(payload)
@@ -280,9 +290,40 @@ export default function AddCouponPage(props) {
         <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wide">Validity Period</h2>
 
+          {/* Monthly offer toggle */}
+          <label className="flex items-start gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer">
+            <input
+              type="checkbox"
+              checked={formData.isMonthly}
+              onChange={(e) => set("isMonthly", e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-gray-900"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-gray-900">Make this a monthly offer</span>
+              <span className="block text-xs text-gray-500 mt-0.5">
+                Auto-renews every calendar month — you won't need to recreate it. Customers get notified before it comes back.
+              </span>
+            </span>
+          </label>
+
+          {formData.isMonthly && (
+            <div>
+              <FieldLabel>Notify customers this many days before next month</FieldLabel>
+              <input
+                type="number"
+                min="0"
+                max="60"
+                value={formData.notifyDaysBeforeNextMonth}
+                onChange={(e) => set("notifyDaysBeforeNextMonth", e.target.value)}
+                placeholder="23"
+                className={inputCls("notifyDaysBeforeNextMonth")}
+              />
+            </div>
+          )}
+
           {/* Start Date */}
           <div>
-            <FieldLabel required>Start Date</FieldLabel>
+            <FieldLabel required={!formData.isMonthly}>Start Date</FieldLabel>
             <div className="relative">
               <input
                 type="date"
@@ -298,7 +339,10 @@ export default function AddCouponPage(props) {
 
           {/* End Date */}
           <div>
-            <FieldLabel required>End Date</FieldLabel>
+            <FieldLabel required={!formData.isMonthly}>End Date</FieldLabel>
+            {formData.isMonthly && (
+              <p className="text-xs text-gray-400 mb-1">Optional — leave blank to use the rest of this month</p>
+            )}
             <div className="relative">
               <input
                 type="date"

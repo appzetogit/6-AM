@@ -6,6 +6,7 @@ import { adminAPI } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
 import { toast } from "sonner"
 import OrdersTopbar from "@food/components/admin/orders/OrdersTopbar"
+import OrderStatusTabs from "@food/components/admin/orders/OrderStatusTabs"
 import OrdersTable from "@food/components/admin/orders/OrdersTable"
 import FilterPanel from "@food/components/admin/orders/FilterPanel"
 import ViewOrderDialog from "@food/components/admin/orders/ViewOrderDialog"
@@ -1335,7 +1336,8 @@ export default function OrdersPage({ statusKey = "all" }) {
 
   return (
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen w-full max-w-full overflow-x-hidden">
-      <OrdersTopbar 
+      <OrderStatusTabs activeStatus={statusKey} />
+      <OrdersTopbar
         title={config.title} 
         count={displayCount} 
         searchQuery={searchQuery}

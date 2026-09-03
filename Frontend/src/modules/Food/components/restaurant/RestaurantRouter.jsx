@@ -15,6 +15,7 @@ const LayoutWrapper = () => (
 // Lazy Loading Components
 const AllOrdersPage = lazy(() => import("@food/pages/restaurant/AllOrdersPage"))
 const OrdersMain = lazy(() => import("@food/pages/restaurant/OrdersMain"))
+const Dashboard = lazy(() => import("@food/pages/restaurant/Dashboard"))
 const RestaurantNotifications = lazy(() => import("@food/pages/restaurant/Notifications"))
 const RestaurantOnboarding = lazy(() => import("@food/pages/restaurant/Onboarding"))
 const CouponListPage = lazy(() => import("@food/pages/restaurant/CouponListPage"))
@@ -108,6 +109,7 @@ export default function RestaurantRouter() {
         {/* Protected app shell (desktop sidebar + mobile chrome) */}
         <Route element={<LayoutWrapper />}>
           <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/seller/login"><OrdersMain /></ProtectedRoute>} path="" />
+          <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/seller/login"><Dashboard /></ProtectedRoute>} path="dashboard" />
           <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/seller/login"><RestaurantNotifications /></ProtectedRoute>} path="notifications" />
           <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/seller/login"><AllOrdersPage /></ProtectedRoute>} path="orders/all" />
           <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/seller/login"><OrderDetailPage /></ProtectedRoute>} path="orders/:id" />

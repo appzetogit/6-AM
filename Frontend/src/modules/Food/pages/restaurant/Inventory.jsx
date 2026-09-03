@@ -23,6 +23,7 @@ import {
 } from "lucide-react"
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar"
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
+import EditItemDrawer from "@food/components/restaurant/EditItemDrawer"
 import { Switch } from "@food/components/ui/switch"
 import { useNavigate } from "react-router-dom"
 import { restaurantAPI, uploadAPI } from "@food/api"
@@ -781,6 +782,7 @@ export default function Inventory() {
   const [activeDesktopCategory, setActiveDesktopCategory] = useState("all")
   const [isLoading, setIsLoading] = useState(false)
   const [loadingInventory, setLoadingInventory] = useState(false)
+  const [editingItem, setEditingItem] = useState(null)
   const [categories, setCategories] = useState(() => {
     try {
       if (typeof window === "undefined") return []
@@ -1008,6 +1010,11 @@ export default function Inventory() {
                 isRecommended: item.isRecommended === true,
                 stockQuantity: item.stock || "Unlimited",
                 unit: item.itemSizeUnit || "piece",
+                sku: item.sku || "",
+                mrp: item.mrp ?? null,
+                gstRate: item.gstRate ?? null,
+                stockQty: item.stockQty ?? null,
+                subscriptionEnabled: item.subscriptionEnabled === true,
               })
             })
           }
@@ -1035,6 +1042,11 @@ export default function Inventory() {
                     isRecommended: item.isRecommended === true,
                     stockQuantity: item.stock || "Unlimited",
                     unit: item.itemSizeUnit || "piece",
+                    sku: item.sku || "",
+                    mrp: item.mrp ?? null,
+                    gstRate: item.gstRate ?? null,
+                    stockQty: item.stockQty ?? null,
+                    subscriptionEnabled: item.subscriptionEnabled === true,
                   })
                 })
               }
@@ -1862,21 +1874,18 @@ export default function Inventory() {
 
   const handleEditItem = (category, item) => {
     if (!item?.id) return
+    setEditingItem({ item, category })
+  }
 
-    navigate(`/seller/hub-menu/item/${item.id}`, {
-      state: {
-        backTo: "/seller/inventory",
-        item: {
-          ...item,
-          category: category?.name || "",
-          categoryId: category?.id || category?.categoryId || "",
-          isAvailable: item.inStock,
-        },
-        category: category?.name || "",
-        categoryId: category?.id || category?.categoryId || "",
-        groupId: category?.id || category?.categoryId || "",
-      },
-    })
+  const handleItemSaved = (updatedFields, deletedItemId) => {
+    setCategories((prev) =>
+      prev.map((cat) => ({
+        ...cat,
+        items: deletedItemId
+          ? cat.items.filter((i) => i.id !== deletedItemId)
+          : cat.items.map((i) => (i.id === updatedFields?.id ? { ...i, ...updatedFields } : i)),
+      }))
+    )
   }
 
   return (
@@ -3599,6 +3608,14 @@ export default function Inventory() {
 
       {/* Bottom Navigation */}
       <BottomNavOrders />
+
+      <EditItemDrawer
+        item={editingItem?.item || null}
+        category={editingItem?.category || null}
+        categories={categories}
+        onClose={() => setEditingItem(null)}
+        onSaved={handleItemSaved}
+      />
     </div>
   )
 }

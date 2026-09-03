@@ -165,6 +165,11 @@ export default function CouponListPage() {
                         <span className="px-2.5 py-1 rounded text-xs font-bold bg-gray-100 text-gray-700">
                           {coupon.discountType === "percentage" ? "% OFF" : "FLAT OFF"}
                         </span>
+                        {coupon.isMonthly && (
+                          <span className="px-2.5 py-1 rounded text-xs font-bold bg-amber-50 text-amber-700">
+                            MONTHLY
+                          </span>
+                        )}
                       </div>
                       <div className="relative" data-menu-id={coupon.id}>
                         <button

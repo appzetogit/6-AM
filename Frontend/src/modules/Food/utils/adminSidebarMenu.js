@@ -1,14 +1,14 @@
 export const adminSidebarMenu = [
   {
-    type: "link",
-    label: "Dashboard",
-    path: "/admin/store",
-    icon: "LayoutDashboard",
-  },
-  {
     type: "section",
-    label: "ORDERS",
+    label: "OVERVIEW",
     items: [
+      {
+        type: "link",
+        label: "Dashboard",
+        path: "/admin/store",
+        icon: "LayoutDashboard",
+      },
       {
         type: "expandable",
         label: "Orders",
@@ -178,21 +178,35 @@ export const adminSidebarMenu = [
   },
   {
     type: "section",
-    label: "SETTINGS",
+    label: "CONFIGURATION",
     items: [
-      { type: "link", label: "Broadcast Notification", path: "/admin/store/broadcast-notification", icon: "Bell" },
-      { type: "link", label: "Business Setup", path: "/admin/store/business-setup", icon: "Settings" },
-      { type: "link", label: "Survey", path: "/admin/store/survey", icon: "FileText" },
-      { type: "link", label: "Feature Settings", path: "/admin/store/feature-settings", icon: "Settings" },
-      { type: "link", label: "Power Scanning", path: "/admin/store/power-scanning", icon: "Zap" },
-      { type: "link", label: "Sub Admin List", path: "/admin/store/employees", icon: "UserCog" },
-      { type: "link", label: "About Us", path: "/admin/store/pages-social-media/about", icon: "Globe" },
-      { type: "link", label: "Terms & Conditions", path: "/admin/store/pages-social-media/terms", icon: "FileText" },
-      { type: "link", label: "Privacy Policy", path: "/admin/store/pages-social-media/privacy", icon: "Lock" },
-      { type: "link", label: "Support", path: "/admin/store/pages-social-media/support", icon: "Headset" },
-      { type: "link", label: "Refund Policy", path: "/admin/store/pages-social-media/refund", icon: "Receipt" },
-      { type: "link", label: "Shipping Policy", path: "/admin/store/pages-social-media/shipping", icon: "Truck" },
-      { type: "link", label: "Cancellation Policy", path: "/admin/store/pages-social-media/cancellation", icon: "X" },
+      {
+        type: "expandable",
+        label: "Appearance",
+        icon: "Palette",
+        subItems: [
+          { label: "Business Setup", path: "/admin/store/business-setup" },
+          { label: "About Us", path: "/admin/store/pages-social-media/about" },
+          { label: "Terms & Conditions", path: "/admin/store/pages-social-media/terms" },
+          { label: "Privacy Policy", path: "/admin/store/pages-social-media/privacy" },
+          { label: "Support", path: "/admin/store/pages-social-media/support" },
+          { label: "Refund Policy", path: "/admin/store/pages-social-media/refund" },
+          { label: "Shipping Policy", path: "/admin/store/pages-social-media/shipping" },
+          { label: "Cancellation Policy", path: "/admin/store/pages-social-media/cancellation" },
+        ],
+      },
+      {
+        type: "expandable",
+        label: "Settings",
+        icon: "Settings",
+        subItems: [
+          { label: "Broadcast Notification", path: "/admin/store/broadcast-notification" },
+          { label: "Survey", path: "/admin/store/survey" },
+          { label: "Feature Settings", path: "/admin/store/feature-settings" },
+          { label: "Power Scanning", path: "/admin/store/power-scanning" },
+          { label: "Sub Admin List", path: "/admin/store/employees" },
+        ],
+      },
     ],
   },
 ];

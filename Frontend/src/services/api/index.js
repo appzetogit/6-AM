@@ -1481,6 +1481,11 @@ export const restaurantAPI = {
       params: { limit: 50, page: 1, ...params },
       contextModule: "restaurant",
     }),
+  /** Dashboard summary widgets: account counts, order totals, 6-month charts */
+  getDashboardSummary: () =>
+    apiClient.get("/food/restaurant/dashboard-summary", {
+      contextModule: "restaurant",
+    }),
   getPendingPhone: (phone) =>
     apiClient.get(`/food/restaurant/auth/pending-phone?phone=${phone}`),
   getSubscriptionSettings: () =>
@@ -1538,6 +1543,10 @@ export const restaurantAPI = {
     }),
   updateFood: (id, body) =>
     apiClient.patch(`/food/restaurant/foods/${String(id)}`, body ?? {}, {
+      contextModule: "restaurant",
+    }),
+  deleteFood: (id) =>
+    apiClient.delete(`/food/restaurant/foods/${String(id)}`, {
       contextModule: "restaurant",
     }),
   bulkUploadTemplate: () =>
