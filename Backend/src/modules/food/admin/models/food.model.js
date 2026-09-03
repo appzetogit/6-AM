@@ -107,6 +107,8 @@ const foodSchema = new mongoose.Schema(
             default: undefined
         },
         isRecommended: { type: Boolean, default: false, index: true },
+        /** Seller/admin opt-in gate for recurring "Product Subscriptions" (see productSubscription.model.js) — a customer can only subscribe to an item once this is true. */
+        subscriptionEnabled: { type: Boolean, default: false, index: true },
         preparationTime: { type: String, trim: true, default: '' },
         approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved', index: true },
         rejectionReason: { type: String, trim: true, default: '' },

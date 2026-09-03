@@ -116,8 +116,11 @@ export async function createSubscription(userId, dto) {
     if (!restaurant) throw new NotFoundError('Restaurant not found');
 
     const itemId = toObjectId(dto.itemId, 'itemId');
-    const item = await FoodItem.findOne({ _id: itemId, restaurantId }).select('name').lean();
+    const item = await FoodItem.findOne({ _id: itemId, restaurantId }).select('name subscriptionEnabled').lean();
     if (!item) throw new ValidationError('Item does not belong to this restaurant');
+    if (item.subscriptionEnabled !== true) {
+        throw new ValidationError('This product is not available for subscription');
+    }
 
     await resolveAddress(userId, dto.addressId); // throws if not found
 

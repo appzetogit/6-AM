@@ -64,6 +64,7 @@ const buildMenuFromFoods = async (foods = []) => {
                 : (food.image ? [food.image] : []),
             foodType: food.foodType || 'Non-Veg',
             isAvailable: food.isAvailable !== false,
+            subscriptionEnabled: food.subscriptionEnabled === true,
             // null means the seller does not count this item, which the app has
             // to tell apart from zero so it does not render "0 left" on
             // everything that predates inventory.
@@ -79,6 +80,7 @@ const buildMenuFromFoods = async (foods = []) => {
             barcode: food.barcode || '',
             expiryDate: food.expiryDate ?? null,
             mrp: food.mrp ?? null,
+            gstRate: food.gstRate ?? null,
             approvalStatus: food.approvalStatus || 'approved',
             rejectionReason: food.rejectionReason || '',
             requestedAt: food.requestedAt,

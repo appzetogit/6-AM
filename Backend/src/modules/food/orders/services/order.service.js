@@ -1688,14 +1688,19 @@ export async function listOrdersRestaurant(restaurantId, query) {
     }
   }
 
-  const statusRaw = query?.orderStatus || query?.status;
-  if (statusRaw) {
-    const statuses = String(statusRaw)
-      .split(",")
-      .map((value) => String(value || "").trim().toLowerCase())
-      .filter(Boolean);
-    if (statuses.length > 0) {
-      filter.orderStatus = { $in: statuses };
+  const scheduledOnly = String(query?.scheduled || "").toLowerCase() === "true";
+  if (scheduledOnly) {
+    filter.scheduledAt = { $gt: new Date() };
+  } else {
+    const statusRaw = query?.orderStatus || query?.status;
+    if (statusRaw) {
+      const statuses = String(statusRaw)
+        .split(",")
+        .map((value) => String(value || "").trim().toLowerCase())
+        .filter(Boolean);
+      if (statuses.length > 0) {
+        filter.orderStatus = { $in: statuses };
+      }
     }
   }
 

@@ -6,7 +6,7 @@ import {
     updateRestaurantFoodStock,
     listLowStockFoods
 } from '../services/restaurantFood.service.js';
-import { getRestaurantAnalytics } from '../services/restaurantAnalytics.service.js';
+import { getRestaurantAnalytics, getRestaurantDashboardSummary } from '../services/restaurantAnalytics.service.js';
 
 export const createRestaurantFoodController = async (req, res, next) => {
     try {
@@ -47,6 +47,16 @@ export const getAnalyticsController = async (req, res, next) => {
         const restaurantId = req.user?.userId;
         const result = await getRestaurantAnalytics(restaurantId, req.query || {});
         return sendResponse(res, 200, 'Analytics fetched successfully', result);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getDashboardSummaryController = async (req, res, next) => {
+    try {
+        const restaurantId = req.user?.userId;
+        const result = await getRestaurantDashboardSummary(restaurantId);
+        return sendResponse(res, 200, 'Dashboard summary fetched successfully', result);
     } catch (error) {
         next(error);
     }

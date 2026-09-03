@@ -469,6 +469,7 @@ export async function createRestaurantFood(restaurantId, body = {}) {
         maxQtyPerOrder: parseStockNumber(body.maxQtyPerOrder, { min: 1 }) ?? undefined,
         ...catalogFields,
         isRecommended: body.isRecommended === true,
+        subscriptionEnabled: body.subscriptionEnabled === true,
         preparationTime,
         approvalStatus: 'pending',
         requestedAt: new Date()
@@ -530,6 +531,7 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
     Object.assign(update, availabilityUpdate.update);
     if (body.preparationTime !== undefined) update.preparationTime = toStr(body.preparationTime);
     if (body.isRecommended !== undefined) update.isRecommended = body.isRecommended === true;
+    if (body.subscriptionEnabled !== undefined) update.subscriptionEnabled = body.subscriptionEnabled === true;
 
     const targetFoodType = body.foodType !== undefined ? normalizeFoodType(body.foodType) : normalizeFoodType(existing.foodType);
     if (body.foodType !== undefined) update.foodType = targetFoodType;

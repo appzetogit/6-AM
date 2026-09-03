@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 import { FoodOrder } from '../../orders/models/order.model.js';
+import { FoodRestaurant } from '../models/restaurant.model.js';
+import { FoodOffer } from '../../admin/models/offer.model.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 
 /**
@@ -237,4 +239,123 @@ function fillDailyGaps(rows, from, to) {
     }
 
     return out;
+}
+
+/**
+ * Same "may this order be shown to the seller at all" gate `listOrdersRestaurant`
+ * uses: an unpaid (`pending_payment`) order must never surface in seller-facing
+ * counts either, or a seller could see revenue/order figures that include
+ * orders nobody has actually paid for yet.
+ */
+function exposedOrdersFilter(rId) {
+    return {
+        restaurantId: rId,
+        $or: [
+            { 'payment.method': { $in: ['cash', 'wallet', 'razorpay_qr'] } },
+            { 'payment.status': { $in: ['paid', 'authorized', 'captured', 'settled', 'refunded'] } },
+        ],
+    };
+}
+
+function lastSixMonthKeys() {
+    const out = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i -= 1) {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+        out.push({
+            key: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`,
+            label: d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }),
+        });
+    }
+    return out;
+}
+
+/**
+ * Dashboard widgets for the seller's own overview page: account-level counts
+ * (outlet/customers/zones/coupons), all-time delivered order totals, and two
+ * 6-month bar-chart series (orders placed, and first-time customers).
+ */
+export async function getRestaurantDashboardSummary(restaurantId) {
+    if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) {
+        throw new ValidationError('Invalid store id');
+    }
+    const rId = new mongoose.Types.ObjectId(String(restaurantId));
+    const exposedFilter = exposedOrdersFilter(rId);
+    const deliveredFilter = { ...exposedFilter, orderStatus: 'delivered' };
+
+    const months = lastSixMonthKeys();
+    const rangeStart = new Date(`${months[0].key}-01T00:00:00.000${TIMEZONE}`);
+
+    const [restaurant, couponsCount, [orderTotals], distinctCustomers, monthlyOrdersRaw, firstOrdersRaw] =
+        await Promise.all([
+            FoodRestaurant.findById(rId).select('zoneId').lean(),
+            FoodOffer.countDocuments({ restaurantId: rId }),
+            FoodOrder.aggregate([
+                { $match: deliveredFilter },
+                {
+                    $group: {
+                        _id: null,
+                        orders: { $sum: 1 },
+                        revenue: { $sum: '$pricing.total' },
+                        earning: {
+                            $sum: {
+                                $max: [
+                                    0,
+                                    {
+                                        $subtract: [
+                                            { $add: [{ $ifNull: ['$pricing.subtotal', 0] }, { $ifNull: ['$pricing.packagingFee', 0] }] },
+                                            { $ifNull: ['$pricing.restaurantCommission', 0] },
+                                        ],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                },
+            ]),
+            FoodOrder.distinct('userId', deliveredFilter),
+            FoodOrder.aggregate([
+                { $match: { ...exposedFilter, createdAt: { $gte: rangeStart } } },
+                {
+                    $group: {
+                        _id: { $dateToString: { format: '%Y-%m', date: '$createdAt', timezone: TIMEZONE } },
+                        count: { $sum: 1 },
+                    },
+                },
+            ]),
+            FoodOrder.aggregate([
+                { $match: exposedFilter },
+                { $group: { _id: '$userId', firstOrderAt: { $min: '$createdAt' } } },
+                { $match: { firstOrderAt: { $gte: rangeStart } } },
+                {
+                    $group: {
+                        _id: { $dateToString: { format: '%Y-%m', date: '$firstOrderAt', timezone: TIMEZONE } },
+                        count: { $sum: 1 },
+                    },
+                },
+            ]),
+        ]);
+
+    const noOfOrders = orderTotals?.orders || 0;
+    const revenue = round2(orderTotals?.revenue || 0);
+
+    const monthlyOrdersByKey = new Map((monthlyOrdersRaw || []).map((row) => [row._id, row.count]));
+    const firstOrdersByKey = new Map((firstOrdersRaw || []).map((row) => [row._id, row.count]));
+
+    return {
+        accountSummary: {
+            outlets: 1,
+            customers: distinctCustomers.length,
+            deliveryZones: restaurant?.zoneId ? 1 : 0,
+            coupons: couponsCount || 0,
+        },
+        orderSummary: {
+            noOfOrders,
+            revenue,
+            averageOrderValue: noOfOrders > 0 ? round2(revenue / noOfOrders) : 0,
+            yourEarning: round2(orderTotals?.earning || 0),
+        },
+        last6MonthsOrders: months.map(({ key, label }) => ({ month: label, count: monthlyOrdersByKey.get(key) || 0 })),
+        last6MonthsSignupCustomers: months.map(({ key, label }) => ({ month: label, count: firstOrdersByKey.get(key) || 0 })),
+    };
 }

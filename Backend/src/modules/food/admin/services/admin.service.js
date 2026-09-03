@@ -3842,6 +3842,8 @@ export async function getFoods(query) {
             : (f.image ? [f.image] : []),
         foodType: f.foodType || 'Non-Veg',
         isAvailable: f.isAvailable !== false,
+        isRecommended: f.isRecommended === true,
+        subscriptionEnabled: f.subscriptionEnabled === true,
         preparationTime: f.preparationTime || '',
         approvalStatus: f.approvalStatus || 'approved',
         createdAt: f.createdAt,
@@ -3998,6 +4000,8 @@ export async function createFood(body) {
         ...(normalizeFoodImages(body) ?? { image: '', images: [] }),
         foodType,
         isAvailable: body.isAvailable !== false,
+        isRecommended: body.isRecommended === true,
+        subscriptionEnabled: body.subscriptionEnabled === true,
         preparationTime: typeof body.preparationTime === 'string' ? body.preparationTime.trim() : '',
         // Same grocery fields the seller-side create accepts. Without these the
         // admin panel silently dropped them, so anything catalogued centrally
@@ -4062,6 +4066,8 @@ export async function updateFood(id, body) {
     }
     if (body.foodType !== undefined) doc.foodType = targetFoodType;
     if (body.isAvailable !== undefined) doc.isAvailable = body.isAvailable !== false;
+    if (body.isRecommended !== undefined) doc.isRecommended = body.isRecommended === true;
+    if (body.subscriptionEnabled !== undefined) doc.subscriptionEnabled = body.subscriptionEnabled === true;
     if (body.preparationTime !== undefined) doc.preparationTime = String(body.preparationTime || '').trim();
     // MRP is validated against whichever price ends up on the document, so
     // editing either one alone cannot leave the item priced above its MRP.

@@ -61,7 +61,8 @@ import {
     updateRestaurantFoodController,
     updateRestaurantFoodStockController,
     listLowStockFoodsController,
-    getAnalyticsController
+    getAnalyticsController,
+    getDashboardSummaryController
 } from '../controllers/restaurantFood.controller.js';
 import {
     listAddonsController,
@@ -275,6 +276,7 @@ router.patch('/foods/stock', authMiddleware, requireRestaurant, async (req, res,
 }, updateRestaurantFoodStockController);
 router.get('/foods/low-stock', authMiddleware, requireRestaurant, listLowStockFoodsController);
 router.get('/analytics', authMiddleware, requireRestaurant, getAnalyticsController);
+router.get('/dashboard-summary', authMiddleware, requireRestaurant, getDashboardSummaryController);
 
 router.delete('/foods/:id', authMiddleware, requireRestaurant, async (req, res, next) => {
     await invalidateCache('restaurant_menu:*');
