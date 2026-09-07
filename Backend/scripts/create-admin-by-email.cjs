@@ -24,6 +24,13 @@ async function run() {
   const existing = await adminCollection.findOne({ email: emailArg });
   const hash = await bcrypt.hash(passwordArg, 10);
 
+  // Written through the driver rather than the model, so none of the schema
+  // defaults apply — every field the app reads has to be spelled out here.
+  // adminType is the one that bites: the panel grants nothing without an
+  // explicit 'super_admin', so an account created without it could sign in,
+  // receive a working token, and then be bounced off every page. isDeleted
+  // matters for the same reason — admin lookups filter on `isDeleted: false`,
+  // which does not match a document that lacks the field at all.
   if (existing) {
     await adminCollection.updateOne(
       { _id: existing._id },
@@ -32,7 +39,9 @@ async function run() {
           password: hash,
           name: existing.name || nameArg,
           role: "ADMIN",
+          adminType: existing.adminType || "super_admin",
           isActive: true,
+          isDeleted: existing.isDeleted === true,
           servicesAccess: existing.servicesAccess?.length
             ? existing.servicesAccess
             : ["food", "quickCommerce", "taxi"],
@@ -51,7 +60,10 @@ async function run() {
       fcmTokens: [],
       fcmTokenMobile: [],
       role: "ADMIN",
+      adminType: "super_admin",
+      permissions: {},
       isActive: true,
+      isDeleted: false,
       servicesAccess: ["food", "quickCommerce", "taxi"],
       createdAt: new Date(),
       updatedAt: new Date(),

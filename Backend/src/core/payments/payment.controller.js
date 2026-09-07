@@ -5,12 +5,51 @@ import { getWalletBalance, getWalletWithTransactions, getUserWalletForFrontend }
 import { getRefundsByOrder, listRefunds } from './refund.service.js';
 import { createSettlement, processSettlement, listSettlements } from './settlement.service.js';
 import { logger } from '../../utils/logger.js';
+import { FoodOrder } from '../../modules/food/orders/models/order.model.js';
+import { buildOrderIdentityFilter } from '../../modules/food/orders/services/order.helpers.js';
+import { ForbiddenError, NotFoundError, ValidationError } from '../auth/errors.js';
+
+/**
+ * Resolves an order id from the path and proves the caller took part in it.
+ *
+ * These routes are addressed by order id alone, so without this any signed-in
+ * account could read the payment trail, ledger rows and refunds of any order
+ * just by guessing or harvesting an id. Mirrors the participant test already
+ * used by getOrderById and the join-tracking socket handler: the customer who
+ * placed it, the restaurant that received it, the rider assigned to it — and
+ * admins, who legitimately see every order.
+ *
+ * @returns {Promise<import('mongoose').Types.ObjectId>} the order's _id
+ */
+const resolveParticipantOrderId = async (orderIdParam, user) => {
+    const identity = buildOrderIdentityFilter(orderIdParam);
+    if (!identity) throw new ValidationError('Order id required');
+
+    const order = await FoodOrder.findOne(identity)
+        .select('userId restaurantId dispatch.deliveryPartnerId')
+        .lean();
+    if (!order) throw new NotFoundError('Order not found');
+
+    const role = String(user?.role || '').toUpperCase();
+    if (role === 'ADMIN') return order._id;
+
+    const me = String(user?.userId || '');
+    // For restaurants and riders the token's userId *is* the entity id, the same
+    // way the restaurant and delivery order controllers read it.
+    const isParticipant =
+        (role === 'USER' && String(order.userId || '') === me) ||
+        (role === 'RESTAURANT' && String(order.restaurantId || '') === me) ||
+        (role === 'DELIVERY_PARTNER' && String(order.dispatch?.deliveryPartnerId || '') === me);
+
+    if (!isParticipant) throw new ForbiddenError('Not your order');
+    return order._id;
+};
 
 // ─── User Endpoints ───
 
 export const getPaymentHistoryController = async (req, res, next) => {
     try {
-        const { orderId } = req.params;
+        const orderId = await resolveParticipantOrderId(req.params.orderId, req.user);
         const payments = await getPaymentsByOrder(orderId);
         return sendResponse(res, 200, 'Payment history fetched', { payments });
     } catch (err) {
@@ -20,7 +59,7 @@ export const getPaymentHistoryController = async (req, res, next) => {
 
 export const getOrderTransactionsController = async (req, res, next) => {
     try {
-        const { orderId } = req.params;
+        const orderId = await resolveParticipantOrderId(req.params.orderId, req.user);
         const transactions = await getTransactionsByOrder(orderId);
         return sendResponse(res, 200, 'Transactions fetched', { transactions });
     } catch (err) {
@@ -52,9 +91,29 @@ export const getUserWalletTransactionsController = async (req, res, next) => {
 
 // ─── Restaurant Endpoints ───
 
+/**
+ * The entity whose wallet may be read: an admin may name any in the path, every
+ * other role is pinned to its own id from the token.
+ *
+ * This used to read `req.user.restaurantId || req.params.restaurantId`, but
+ * authMiddleware only ever sets userId/role/adminType — so that first operand
+ * was always undefined and the path parameter always won, letting any caller
+ * read any restaurant's or rider's ledger.
+ */
+const resolveOwnWalletId = (req) => {
+    const role = String(req.user?.role || '').toUpperCase();
+    if (role === 'ADMIN') {
+        const fromPath = req.params.restaurantId || req.params.deliveryPartnerId;
+        if (!fromPath) throw new ValidationError('Entity id required');
+        return fromPath;
+    }
+    // For these roles the token's userId is the entity id.
+    return String(req.user?.userId || '');
+};
+
 export const getRestaurantWalletController = async (req, res, next) => {
     try {
-        const restaurantId = req.user?.restaurantId || req.params.restaurantId;
+        const restaurantId = resolveOwnWalletId(req);
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
         const data = await getWalletWithTransactions('restaurant', restaurantId, { page, limit });
@@ -68,7 +127,7 @@ export const getRestaurantWalletController = async (req, res, next) => {
 
 export const getDeliveryWalletController = async (req, res, next) => {
     try {
-        const deliveryPartnerId = req.user?.deliveryPartnerId || req.params.deliveryPartnerId;
+        const deliveryPartnerId = resolveOwnWalletId(req);
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
         const data = await getWalletWithTransactions('deliveryBoy', deliveryPartnerId, { page, limit });
@@ -165,7 +224,7 @@ export const listRefundsController = async (req, res, next) => {
 
 export const getRefundsByOrderController = async (req, res, next) => {
     try {
-        const { orderId } = req.params;
+        const orderId = await resolveParticipantOrderId(req.params.orderId, req.user);
         const refunds = await getRefundsByOrder(orderId);
         return sendResponse(res, 200, 'Refunds fetched', { refunds });
     } catch (err) {

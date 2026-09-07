@@ -6,3 +6,5 @@ coverage/
 .DS_Store
 /backups/
 /uploads/
+# Deploy webhook mutex (see src/routes/deploy.routes.js)
+.deploy.lock/

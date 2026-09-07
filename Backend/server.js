@@ -1,7 +1,5 @@
 import http from 'http';
-import crypto from 'crypto';
 import path from 'path';
-import { exec } from 'child_process';
 
 import app from './src/app.js';
 import { config } from './src/config/env.js';
@@ -154,29 +152,10 @@ const startServer = async () => {
             logger.info('BullMQ queue bootstrap disabled for this server process.');
         }
 
-        app.post('/api/deploy', (req, res) => {
-            const signature = req.headers['x-hub-signature-256'];
-            const secret = 'mysecret123';
-
-            const hash = 'sha256=' + crypto
-                .createHmac('sha256', secret)
-                .update(JSON.stringify(req.body))
-                .digest('hex');
-
-            if (signature !== hash) {
-                return res.status(403).send('Unauthorized');
-            }
-
-            exec('cd ~ && ./deploy.sh', (err, stdout) => {
-                if (err) {
-                    console.error(err);
-                    return res.send('Deploy failed');
-                }
-
-                console.log(stdout);
-                res.send('Deploy success');
-            });
-        });
+        // The deploy webhook now lives in src/routes/deploy.routes.js and is
+        // mounted by app.js only when it is fully configured. It used to be
+        // registered here, at runtime, with a hardcoded secret — invisible to
+        // anyone reading the route table.
 
         server = httpServer.listen(config.port, config.host, () => {
             logger.info(`Server running in ${config.nodeEnv} mode on ${config.host}:${config.port}`);

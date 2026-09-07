@@ -49,3 +49,38 @@ export const isValidPermissionPayload = (payload = {}) => {
 
     return true;
 };
+
+/**
+ * The account type to assume when a row does not carry one.
+ *
+ * The schema defaults adminType to 'super_admin', but rows written straight to
+ * the collection never see that default — scripts/create-admin-by-email.cjs is
+ * one, and it is the documented way to create the first admin. Those rows load
+ * with adminType undefined.
+ *
+ * Backend authorization already reads that as a super admin (isSuperAdmin in
+ * roles/adminPermission.middleware.js, and the login token payload), so this
+ * matches what the API actually enforces rather than introducing a third
+ * opinion. The panel is strict — it grants nothing without an explicit
+ * 'super_admin' — so leaving the two to disagree signed the account in with
+ * full API access and an empty permission set, and every page bounced it back.
+ */
+export const DEFAULT_ADMIN_TYPE = 'super_admin';
+
+/** Reads an admin's type, falling back for rows saved without one. */
+export const normalizeAdminType = (adminType) => {
+    const normalized = String(adminType || '').trim().toLowerCase();
+    return normalized || DEFAULT_ADMIN_TYPE;
+};
+
+export const isSuperAdminType = (adminType) => normalizeAdminType(adminType) === 'super_admin';
+
+/**
+ * The permission set the panel should act on: everything for a super admin,
+ * the stored grants otherwise. The single source for both login and /me, which
+ * previously computed this separately and could drift.
+ */
+export const resolveEffectivePermissions = (admin = {}) =>
+    (isSuperAdminType(admin?.adminType)
+        ? ADMIN_FULL_PERMISSIONS
+        : sanitizeAdminPermissions(admin?.permissions || {}));

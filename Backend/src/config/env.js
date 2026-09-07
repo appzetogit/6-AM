@@ -61,6 +61,21 @@ export const config = {
     // Security
     bcryptSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS || 10),
 
+    /**
+     * Deploy webhook (POST /api/deploy) — runs a shell script on the box, so it
+     * is off unless both of these are set. There is deliberately no default
+     * secret: the previous one was a literal in server.js, which put remote code
+     * execution in the public repo for anyone who read it.
+     *
+     * DEPLOY_WEBHOOK_ENABLED=true and a DEPLOY_WEBHOOK_SECRET of at least 32
+     * chars are both required, or the route is never mounted.
+     */
+    deployWebhookEnabled: process.env.DEPLOY_WEBHOOK_ENABLED === 'true',
+    deployWebhookSecret: process.env.DEPLOY_WEBHOOK_SECRET || '',
+    /** Script the hook runs. Absolute path; invoked directly, never through a shell. */
+    deployScriptPath: process.env.DEPLOY_SCRIPT_PATH || '',
+    deployTimeoutMs: Number(process.env.DEPLOY_TIMEOUT_MS || 10 * 60 * 1000),
+
     // Uploads (local VPS storage — served by nginx, not Node)
     uploadStorageRoot: process.env.UPLOAD_STORAGE_ROOT
         || (process.env.NODE_ENV === 'production' ? '/var/www/uploads' : 'uploads'),

@@ -17,7 +17,7 @@ import { logger } from "../../utils/logger.js";
 import { sendAdminResetOtpEmail } from "../../utils/email.js";
 import mongoose from "mongoose";
 import { creditReferralReward } from "../../modules/food/user/services/userWallet.service.js";
-import { ADMIN_FULL_PERMISSIONS, sanitizeAdminPermissions } from '../../constants/permissions.js';
+import { normalizeAdminType, resolveEffectivePermissions } from '../../constants/permissions.js';
 import { isMobilePlatform } from "../../utils/platform.js";
 import {
   detachFirebaseDeviceTokenEverywhere,
@@ -308,14 +308,12 @@ export const adminLogin = async (email, password) => {
     throw new AuthError("Invalid credentials");
   }
 
-  const effectivePermissions = admin.adminType === "super_admin"
-    ? ADMIN_FULL_PERMISSIONS
-    : sanitizeAdminPermissions(admin.permissions || {});
+  const effectivePermissions = resolveEffectivePermissions(admin);
 
   const payload = {
     userId: admin._id.toString(),
     role: admin.role,
-    adminType: admin.adminType || "super_admin",
+    adminType: normalizeAdminType(admin.adminType),
   };
 
   const accessToken = signAccessToken(payload);
@@ -332,6 +330,7 @@ export const adminLogin = async (email, password) => {
 
   const userObj = admin.toObject();
   delete userObj.password;
+  userObj.adminType = payload.adminType;
   userObj.effectivePermissions = effectivePermissions;
   return { accessToken, refreshToken, user: userObj };
 };
@@ -571,9 +570,11 @@ export const getProfile = async (userId, role) => {
     case ROLES.ADMIN:
       profile = await FoodAdmin.findById(id).select("-password").lean();
       if (profile) {
-        profile.effectivePermissions = profile.adminType === "super_admin"
-          ? ADMIN_FULL_PERMISSIONS
-          : sanitizeAdminPermissions(profile.permissions || {});
+        // adminType is echoed back normalized too: the panel grants nothing
+        // without an explicit 'super_admin', so returning the raw undefined
+        // alongside a full permission set would still lock the account out.
+        profile.adminType = normalizeAdminType(profile.adminType);
+        profile.effectivePermissions = resolveEffectivePermissions(profile);
       }
       break;
     case ROLES.RESTAURANT:

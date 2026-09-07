@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import mongoSanitize from 'mongo-sanitize';
 import xssClean from 'xss-clean';
 import routes from './routes/index.js';
+import deployRoutes, { isDeployWebhookConfigured } from './routes/deploy.routes.js';
 import shareLinksRoutes from './modules/food/public/shareLinks.routes.js';
 import errorHandler from './middleware/errorHandler.js';
 import { apiRateLimiter } from './middleware/rateLimit.js';
@@ -46,10 +47,20 @@ app.use(helmet({
 }));
 app.use(cors());
 app.use(morgan('dev'));
+/**
+ * Paths whose HMAC signature is computed over the bytes as sent.
+ *
+ * Re-serializing req.body is not equivalent: express.json() reorders nothing but
+ * drops the original whitespace, and the sanitizers below mutate the object
+ * afterwards — so a hash taken from JSON.stringify(req.body) does not match what
+ * the sender signed. Keep the untouched buffer for these routes.
+ */
+const RAW_BODY_PATHS = ['/webhook/razorpay', '/api/deploy'];
+
 app.use(express.json({
     verify: (req, res, buf) => {
-        // ✅ Store rawBody for signature verification (Razorpay Webhooks)
-        if (req.originalUrl && req.originalUrl.includes('/webhook/razorpay')) {
+        const url = req.originalUrl || '';
+        if (RAW_BODY_PATHS.some((path) => url.includes(path))) {
             req.rawBody = buf;
         }
     }
@@ -70,6 +81,12 @@ app.use('/api', apiRateLimiter);
 
 // Optional: log API response time (method, path, status, duration) - no sensitive data
 app.use('/api', responseTimeLogger);
+
+// Deploy webhook — mounted only when fully configured (see deploy.routes.js).
+// Kept under /api so the global rate limiter applies to it.
+if (isDeployWebhookConfigured()) {
+    app.use('/api/deploy', deployRoutes);
+}
 
 // API Routes
 app.use('/api', routes);
