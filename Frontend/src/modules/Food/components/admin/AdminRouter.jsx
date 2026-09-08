@@ -17,6 +17,7 @@ const FoodApproval = lazy(() => import("@food/pages/admin/restaurant/FoodApprova
 const OrdersPage = lazy(() => import("@food/pages/admin/orders/OrdersPage"));
 const UserCarts = lazy(() => import("@food/pages/admin/orders/UserCarts"));
 const OrderDetectDelivery = lazy(() => import("@food/pages/admin/OrderDetectDelivery"));
+const SubscriptionsManagement = lazy(() => import("@food/pages/admin/subscriptions/SubscriptionsManagement"));
 const Category = lazy(() => import("@food/pages/admin/categories/Category"));
 const FeeSettings = lazy(() => import("@food/pages/admin/fee-settings/FeeSettings"));
 const ReferralSettings = lazy(() => import("@food/pages/admin/referral-settings/ReferralSettings"));
@@ -273,6 +274,7 @@ export default function AdminRouter() {
             <Route path="orders/abandoned" element={<OrdersPage statusKey="abandoned" />} />
             <Route path="orders/user-carts" element={<UserCarts />} />
             <Route path="order-detect-delivery" element={<OrderDetectDelivery />} />
+            <Route path="subscriptions" element={<SubscriptionsManagement />} />
             <Route path="order-refunds/new" element={<NewRefundRequests />} />
 
             {/* RESTAURANT MANAGEMENT */}

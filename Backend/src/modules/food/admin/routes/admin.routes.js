@@ -23,6 +23,7 @@ import { FoodAdmin } from '../../../../core/admin/admin.model.js';
 import { requireAdminPermission, requireAnyAdminPermission } from '../../../../core/roles/adminPermission.middleware.js';
 import * as driverRegField from '../../delivery/controllers/driverRegistrationField.controller.js';
 import * as cashbackSettings from '../controllers/cashbackSettings.controller.js';
+import * as productSubscriptionAdmin from '../controllers/productSubscriptionAdmin.controller.js';
 import * as restaurantAppBanner from '../controllers/restaurantAppBanner.controller.js';
 
 const router = express.Router();
@@ -77,6 +78,9 @@ const resolveSectionFromRequest = (path = '', method = '') => {
     if (path.startsWith('/categories') || path.startsWith('/addons') || path.startsWith('/foods')) return 'food_management';
     if (path.startsWith('/offers')) return 'promotions_management';
     if (path.startsWith('/orders') || path.startsWith('/order-detect-delivery')) return 'order_management';
+    // Subscriptions turn into orders, and the people who work the delivery board
+    // are the people who work orders.
+    if (path.startsWith('/product-subscriptions') || path.startsWith('/subscription-deliveries')) return 'order_management';
     if (path.startsWith('/delivery')) return 'delivery_management';
     if (path.startsWith('/withdrawals')) return 'transaction_management';
     if (path.startsWith('/feedback-experiences')) return 'report_management';
@@ -302,6 +306,14 @@ router.get('/offers', adminController.getAllOffers);
 router.post('/offers', adminController.createAdminOffer);
 router.post('/offers/monthly/run', adminController.runMonthlyOfferSweep);
 router.post('/product-subscriptions/run', adminController.runProductSubscriptionSweep);
+
+// ----- Product subscriptions (customer daily/weekly deliveries) — read-only -----
+// /subscription-deliveries is the day's operational board; /product-subscriptions
+// is the list of standing arrangements behind it.
+router.get('/subscription-deliveries/summary', productSubscriptionAdmin.getDeliverySummaryController);
+router.get('/subscription-deliveries', productSubscriptionAdmin.listDeliveriesController);
+router.get('/product-subscriptions', productSubscriptionAdmin.listSubscriptionsController);
+router.get('/product-subscriptions/:id', productSubscriptionAdmin.getSubscriptionDetailController);
 router.get('/reports/wallet-dashboard', adminController.getWalletDashboardController);
 router.post('/pos/orders', createAdminPosOrderController);
 

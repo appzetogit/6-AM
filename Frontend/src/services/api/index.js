@@ -688,6 +688,17 @@ export const adminAPI = {
   /** Foods (admin) - separate collection */
   getFoods: (params = {}) =>
     apiClient.get("/food/admin/foods", { params, contextModule: "admin" }),
+
+  // ─── Product subscriptions (customer daily/weekly deliveries) — read-only ───
+  /** One day's delivery board. `date` is YYYY-MM-DD; omit for today. */
+  getSubscriptionDeliveries: (params = {}) =>
+    apiClient.get("/food/admin/subscription-deliveries", { params, contextModule: "admin" }),
+  getSubscriptionDeliverySummary: (params = {}) =>
+    apiClient.get("/food/admin/subscription-deliveries/summary", { params, contextModule: "admin" }),
+  getProductSubscriptions: (params = {}) =>
+    apiClient.get("/food/admin/product-subscriptions", { params, contextModule: "admin" }),
+  getProductSubscription: (id) =>
+    apiClient.get(`/food/admin/product-subscriptions/${id}`, { contextModule: "admin" }),
   /** POS (admin) — ring up a walk-in order on behalf of a restaurant */
   createAdminPosOrder: (body) =>
     apiClient.post("/food/admin/pos/orders", body ?? {}, {

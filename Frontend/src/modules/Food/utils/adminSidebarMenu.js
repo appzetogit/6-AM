@@ -54,6 +54,12 @@ export const adminSidebarMenu = [
         icon: "CheckCircle2",
       },
       {
+        type: "link",
+        label: "Subscriptions",
+        path: "/admin/store/subscriptions",
+        icon: "Calendar",
+      },
+      {
         type: "expandable",
         label: "Products",
         icon: "Utensils",

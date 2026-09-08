@@ -42,6 +42,7 @@ const PATH_PREFIX_TO_SECTION = [
   { prefix: "/admin/store/restaurants", section: "restaurant_management" },
   { prefix: "/admin/store/orders", section: "order_management" },
   { prefix: "/admin/store/order-detect-delivery", section: "order_management" },
+  { prefix: "/admin/store/subscriptions", section: "order_management" },
   { prefix: "/admin/store/coupons", section: "promotions_management" },
   { prefix: "/admin/store/referral-settings", section: "referral_rewards" },
   { prefix: "/admin/store/customers", section: "customer_management" },

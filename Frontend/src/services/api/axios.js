@@ -38,6 +38,8 @@ const ADMIN_PERMISSION_PATH_MAP = [
   { prefix: "/food/admin/pos", section: "point_of_sale" },
   { prefix: "/food/admin/orders", section: "order_management" },
   { prefix: "/food/admin/order-detect-delivery", section: "order_management" },
+  { prefix: "/food/admin/subscription-deliveries", section: "order_management" },
+  { prefix: "/food/admin/product-subscriptions", section: "order_management" },
   { prefix: "/food/admin/sidebar-badges", section: "dashboard" },
   { prefix: "/food/admin/dashboard-stats", section: "dashboard" },
   { prefix: "/food/admin/referral-settings", section: "referral_rewards" },
