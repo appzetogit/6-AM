@@ -23,6 +23,9 @@ const listSchema = z.object({
 const upsertSchema = z.object({
     name: z.string().min(1, 'Category name is required').max(200).optional(),
     image: z.string().max(2000).optional(),
+    /** Short code and description, shown as columns on the Category / Brand screen. */
+    code: z.string().max(50).optional(),
+    description: z.string().max(1000).optional(),
     type: z.string().max(100).optional(),
     foodTypeScope: z.enum(['Veg', 'Non-Veg', 'Both']).optional(),
     zoneId: z.string().max(100).optional(),
