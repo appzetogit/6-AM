@@ -701,6 +701,15 @@ export const adminAPI = {
   getProductSales: (params = {}) =>
     apiClient.get("/food/admin/dashboard-analytics/product-sales", { params, contextModule: "admin" }),
 
+  getTopCoupons: (params = {}) =>
+    apiClient.get("/food/admin/dashboard-operations/top-coupons", { params, contextModule: "admin" }),
+  getReceivables: (params = {}) =>
+    apiClient.get("/food/admin/dashboard-operations/receivables", { params, contextModule: "admin" }),
+  getPayables: (params = {}) =>
+    apiClient.get("/food/admin/dashboard-operations/payables", { params, contextModule: "admin" }),
+  getLoginLog: (params = {}) =>
+    apiClient.get("/food/admin/dashboard-operations/login-log", { params, contextModule: "admin" }),
+
   // ─── Stocks & Stock Verification ───
   getStocks: (params = {}) =>
     apiClient.get("/food/admin/stocks", { params, contextModule: "admin" }),
