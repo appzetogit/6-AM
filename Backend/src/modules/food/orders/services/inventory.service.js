@@ -3,6 +3,11 @@ import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodOrder } from '../models/order.model.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { logger } from '../../../../utils/logger.js';
+import { recordMovement } from './stockLedger.service.js';
+
+/** Ledger reference for an order, when the caller can name one. */
+const orderRef = (ctx) =>
+  ctx?.orderId ? { kind: 'order', id: ctx.orderId, label: ctx.orderLabel || '' } : { kind: 'system', id: null, label: '' };
 
 /**
  * Stock reservation for quick commerce.
@@ -36,7 +41,7 @@ export function totalQuantityByItem(items = []) {
  * read. If any item comes up short, the ones already taken are put back before
  * throwing — a rejected order must leave the shelf exactly as it found it.
  */
-export async function reserveStockForItems(items = []) {
+export async function reserveStockForItems(items = [], ctx = {}) {
   const totals = totalQuantityByItem(items);
   if (totals.size === 0) return [];
 
@@ -47,12 +52,17 @@ export async function reserveStockForItems(items = []) {
 
     // `$gte` never matches null, so untracked items fall through to the check
     // below rather than being silently decremented into negatives.
-    const res = await FoodItem.updateOne(
+    //
+    // findOneAndUpdate rather than updateOne: still one atomic operation, but
+    // it hands back the post-decrement document, which is what the ledger row
+    // needs for its before/after columns.
+    const updated = await FoodItem.findOneAndUpdate(
       { _id: id, stockQty: { $gte: qty } },
       { $inc: { stockQty: -qty } },
-    );
+      { new: true, projection: { stockQty: 1, name: 1, itemCode: 1, restaurantId: 1 } },
+    ).lean();
 
-    if (res.modifiedCount === 1) {
+    if (updated) {
       taken.push({ itemId, qty });
       // Hide it once empty so the existing listing/search filters, which all key
       // off isAvailable, keep working without knowing inventory exists.
@@ -60,17 +70,26 @@ export async function reserveStockForItems(items = []) {
         { _id: id, stockQty: 0 },
         { $set: { isAvailable: false } },
       );
+      void recordMovement({
+        itemId: id,
+        item: updated,
+        type: 'sale',
+        qtyChange: -qty,
+        qtyBefore: updated.stockQty + qty,
+        qtyAfter: updated.stockQty,
+        reference: orderRef(ctx),
+      });
       continue;
     }
 
     const doc = await FoodItem.findById(id).select('name stockQty').lean();
     if (!doc) {
-      await releaseReservations(taken);
+      await releaseReservations(taken, ctx);
       throw new ValidationError('One or more items are no longer available');
     }
     if (doc.stockQty === null || doc.stockQty === undefined) continue; // untracked
 
-    await releaseReservations(taken);
+    await releaseReservations(taken, ctx);
     const left = Number(doc.stockQty) || 0;
     throw new ValidationError(
       left > 0
@@ -83,10 +102,10 @@ export async function reserveStockForItems(items = []) {
 }
 
 /** Puts back a partial reservation after a failed line. Never throws. */
-export async function releaseReservations(taken = []) {
+export async function releaseReservations(taken = [], ctx = {}) {
   for (const entry of taken) {
     try {
-      await incrementStock(entry.itemId, entry.qty);
+      await incrementStock(entry.itemId, entry.qty, { ...ctx, reason: 'Order rejected before it was placed' });
     } catch (err) {
       logger.error(
         `[CRITICAL] stock rollback failed for item ${entry.itemId} (+${entry.qty}): ${err?.message || err}`,
@@ -95,15 +114,31 @@ export async function releaseReservations(taken = []) {
   }
 }
 
-async function incrementStock(itemId, qty) {
+async function incrementStock(itemId, qty, ctx = {}) {
   const id = new mongoose.Types.ObjectId(String(itemId));
-  await FoodItem.updateOne({ _id: id, stockQty: { $ne: null } }, { $inc: { stockQty: qty } });
+  const updated = await FoodItem.findOneAndUpdate(
+    { _id: id, stockQty: { $ne: null } },
+    { $inc: { stockQty: qty } },
+    { new: true, projection: { stockQty: 1, name: 1, itemCode: 1, restaurantId: 1 } },
+  ).lean();
   // Bring it back only if it went dark by running out. A seller who switched the
   // item off by hand set stockOffMode, and that decision outranks a restock.
   await FoodItem.updateOne(
     { _id: id, stockQty: { $gt: 0 }, isAvailable: false, stockOffMode: { $in: [null, undefined] } },
     { $set: { isAvailable: true } },
   );
+  if (updated) {
+    void recordMovement({
+      itemId: id,
+      item: updated,
+      type: 'sale_return',
+      qtyChange: qty,
+      qtyBefore: updated.stockQty - qty,
+      qtyAfter: updated.stockQty,
+      reason: ctx.reason || 'Order cancelled',
+      reference: orderRef(ctx),
+    });
+  }
 }
 
 /**
@@ -128,9 +163,10 @@ export async function restoreOrderStock(orderLike) {
 
   if (!claimed) return false; // already restored, or nothing to restore
 
+  const orderLabel = orderLike?.order_id || orderLike?.orderId || '';
   for (const [itemId, qty] of totalQuantityByItem(claimed.items)) {
     try {
-      await incrementStock(itemId, qty);
+      await incrementStock(itemId, qty, { orderId, orderLabel, reason: 'Order cancelled / expired' });
     } catch (err) {
       logger.error(
         `[CRITICAL] restock failed for order ${orderId} item ${itemId} (+${qty}): ${err?.message || err}`,
