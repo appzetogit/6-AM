@@ -28,6 +28,7 @@ import { validateAdminChangePasswordDto } from "../../dtos/auth/adminChangePassw
 import { validateAdminForgotPasswordRequestDto } from "../../dtos/auth/adminForgotPasswordRequest.dto.js";
 import { validateAdminForgotPasswordResetDto } from "../../dtos/auth/adminForgotPasswordReset.dto.js";
 import { sendResponse } from "../../utils/response.js";
+import { recordLogin } from "./loginAudit.service.js";
 
 export const requestUserOtpController = async (req, res, next) => {
   try {
@@ -55,6 +56,7 @@ export const verifyUserOtpController = async (req, res, next) => {
       platform,
       name,
     );
+    void recordLogin({ userId: result?.user?._id, role: "USER", name: result?.user?.name, identifier: result?.user?.phone, req });
     return sendResponse(res, 200, "Login successful", result);
   } catch (error) {
     next(error);
@@ -65,6 +67,7 @@ export const adminLoginController = async (req, res, next) => {
   try {
     const { email, password } = validateAdminLoginDto(req.body);
     const result = await adminLogin(email, password);
+    void recordLogin({ userId: result?.user?._id, role: "ADMIN", name: result?.user?.name, identifier: result?.user?.email, req });
     return sendResponse(res, 200, "Admin login successful", result);
   } catch (error) {
     next(error);
@@ -98,6 +101,7 @@ export const verifyRestaurantOtpController = async (req, res, next) => {
   try {
     const { phone, otp, fcmToken, platform } = validateRestaurantOtpVerifyDto(req.body);
     const result = await verifyRestaurantOtpAndLogin(phone, otp, fcmToken, platform);
+    void recordLogin({ userId: result?.user?._id, role: "RESTAURANT", name: result?.user?.name || result?.user?.restaurantName, identifier: result?.user?.ownerPhone || result?.user?.phone, req });
     return sendResponse(res, 200, "Login successful", result);
   } catch (error) {
     next(error);
@@ -121,6 +125,7 @@ export const verifyDeliveryOtpController = async (req, res, next) => {
   try {
     const { phone, otp, fcmToken, platform } = validateDeliveryOtpVerifyDto(req.body);
     const result = await verifyDeliveryOtpAndLogin(phone, otp, fcmToken, platform);
+    void recordLogin({ userId: result?.user?._id, role: "DELIVERY_PARTNER", name: result?.user?.name || result?.user?.restaurantName, identifier: result?.user?.phone, req });
     return sendResponse(res, 200, "Login successful", result);
   } catch (error) {
     next(error);
