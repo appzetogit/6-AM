@@ -1,0 +1,105 @@
+name: Deploy
+
+# Deploys only after CI has gone green on the same commit, and only from the
+# default branch. A manual run is available for a re-deploy that is not tied to
+# a new push (a rollback, or after a server-side change).
+on:
+  workflow_run:
+    workflows: ['CI']
+    branches: [master]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm'
+        required: true
+        default: ''
+
+concurrency:
+  # One deploy at a time, and never cancel one midway: the script on the far
+  # side is not resumable, so an interrupted run leaves the box half-updated.
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    environment: production
+
+    # A red CI must not reach the server. workflow_run fires whatever the
+    # outcome, so the conclusion is checked explicitly.
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      || (github.event_name == 'workflow_dispatch' && github.event.inputs.confirm == 'deploy')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify deploy secrets are present
+        env:
+          URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          SECRET: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$SECRET" ]; then
+            echo "::error::DEPLOY_WEBHOOK_URL and DEPLOY_WEBHOOK_SECRET must be set on the 'production' environment."
+            echo "The server also needs DEPLOY_WEBHOOK_ENABLED=true, DEPLOY_WEBHOOK_SECRET and"
+            echo "DEPLOY_SCRIPT_PATH in its .env, or the endpoint is not mounted and returns 404."
+            exit 1
+          fi
+
+      # The signature is an HMAC over the exact bytes sent, matching how
+      # src/routes/deploy.routes.js verifies it — it hashes the raw body, not a
+      # re-serialized object, so the payload is written once and reused.
+      - name: Trigger the deploy webhook
+        env:
+          URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          SECRET: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          printf '{"ref":"%s","actor":"%s","run":"%s"}' \
+            "$SHA" "${{ github.actor }}" "${{ github.run_id }}" > payload.json
+
+          SIG="sha256=$(openssl dgst -sha256 -hmac "$SECRET" -hex < payload.json | awk '{print $NF}')"
+
+          STATUS=$(curl -sS -o response.txt -w '%{http_code}' \
+            -X POST "$URL" \
+            -H 'Content-Type: application/json' \
+            -H "x-hub-signature-256: $SIG" \
+            --data-binary @payload.json)
+
+          echo "HTTP $STATUS"
+          cat response.txt || true
+          echo
+
+          case "$STATUS" in
+            202) echo "Deploy accepted." ;;
+            409) echo "::warning::A deploy is already running on the server; this run did nothing." ;;
+            403) echo "::error::Signature rejected — DEPLOY_WEBHOOK_SECRET here does not match the server's."; exit 1 ;;
+            404) echo "::error::Endpoint not mounted — the server is missing DEPLOY_WEBHOOK_ENABLED/SECRET/SCRIPT_PATH."; exit 1 ;;
+            *)   echo "::error::Unexpected response $STATUS"; exit 1 ;;
+          esac
+
+      # The webhook answers immediately and runs the script in the background,
+      # so "accepted" is not "finished". Poll /health until the app is serving
+      # again before calling the deploy good.
+      - name: Wait for the server to come back healthy
+        env:
+          HEALTH_URL: ${{ secrets.DEPLOY_HEALTH_URL }}
+        run: |
+          set -uo pipefail
+          if [ -z "${HEALTH_URL:-}" ]; then
+            echo "DEPLOY_HEALTH_URL not set — skipping the post-deploy health check."
+            exit 0
+          fi
+          for i in $(seq 1 60); do
+            BODY=$(curl -sS --max-time 10 "$HEALTH_URL" || true)
+            if echo "$BODY" | grep -q '"status":"UP"'; then
+              echo "Healthy after ${i}0s: $BODY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Server did not report healthy within 10 minutes after deploy."
+          exit 1
