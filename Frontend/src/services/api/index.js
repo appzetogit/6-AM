@@ -689,6 +689,78 @@ export const adminAPI = {
   getFoods: (params = {}) =>
     apiClient.get("/food/admin/foods", { params, contextModule: "admin" }),
 
+  // ─── Stocks & Stock Verification ───
+  getStocks: (params = {}) =>
+    apiClient.get("/food/admin/stocks", { params, contextModule: "admin" }),
+  adjustStock: (body) =>
+    apiClient.post("/food/admin/stocks/adjust", body ?? {}, { contextModule: "admin" }),
+  getStockMovements: (params = {}) =>
+    apiClient.get("/food/admin/stocks/movements", { params, contextModule: "admin" }),
+  getItemStockMovements: (itemId, params = {}) =>
+    apiClient.get(`/food/admin/stocks/${itemId}/movements`, { params, contextModule: "admin" }),
+  getStockVerifications: (params = {}) =>
+    apiClient.get("/food/admin/stock-verifications", { params, contextModule: "admin" }),
+  createStockVerification: (body) =>
+    apiClient.post("/food/admin/stock-verifications", body ?? {}, { contextModule: "admin" }),
+  getStockVerification: (id) =>
+    apiClient.get(`/food/admin/stock-verifications/${id}`, { contextModule: "admin" }),
+  updateStockVerification: (id, body) =>
+    apiClient.patch(`/food/admin/stock-verifications/${id}`, body ?? {}, { contextModule: "admin" }),
+  completeStockVerification: (id) =>
+    apiClient.post(`/food/admin/stock-verifications/${id}/complete`, {}, { contextModule: "admin" }),
+  cancelStockVerification: (id) =>
+    apiClient.post(`/food/admin/stock-verifications/${id}/cancel`, {}, { contextModule: "admin" }),
+  deleteStockVerification: (id) =>
+    apiClient.delete(`/food/admin/stock-verifications/${id}`, { contextModule: "admin" }),
+
+  // ─── Product list (vasy-style) extras ───
+  getFoodById: (id) =>
+    apiClient.get(`/food/admin/foods/${id}`, { contextModule: "admin" }),
+  getNextItemCode: () =>
+    apiClient.get("/food/admin/foods/next-item-code", { contextModule: "admin" }),
+  getDeletedFoods: (params = {}) =>
+    apiClient.get("/food/admin/foods/deleted", { params, contextModule: "admin" }),
+  restoreFood: (id) =>
+    apiClient.patch(`/food/admin/foods/${id}/restore`, {}, { contextModule: "admin" }),
+  purgeFood: (id) =>
+    apiClient.delete(`/food/admin/foods/${id}/purge`, { contextModule: "admin" }),
+  toggleFoodShowOnline: (id) =>
+    apiClient.patch(`/food/admin/foods/${id}/show-online`, {}, { contextModule: "admin" }),
+
+  // ─── Product master data (brands, units of measurement, departments) ───
+  getBrands: (params = {}) =>
+    apiClient.get("/food/admin/brands", { params, contextModule: "admin" }),
+  createBrand: (body) =>
+    apiClient.post("/food/admin/brands", body ?? {}, { contextModule: "admin" }),
+  updateBrand: (id, body) =>
+    apiClient.patch(`/food/admin/brands/${id}`, body ?? {}, { contextModule: "admin" }),
+  toggleBrandStatus: (id) =>
+    apiClient.patch(`/food/admin/brands/${id}/toggle`, {}, { contextModule: "admin" }),
+  deleteBrand: (id) =>
+    apiClient.delete(`/food/admin/brands/${id}`, { contextModule: "admin" }),
+
+  getUnits: (params = {}) =>
+    apiClient.get("/food/admin/units", { params, contextModule: "admin" }),
+  createUnit: (body) =>
+    apiClient.post("/food/admin/units", body ?? {}, { contextModule: "admin" }),
+  updateUnit: (id, body) =>
+    apiClient.patch(`/food/admin/units/${id}`, body ?? {}, { contextModule: "admin" }),
+  toggleUnitStatus: (id) =>
+    apiClient.patch(`/food/admin/units/${id}/toggle`, {}, { contextModule: "admin" }),
+  deleteUnit: (id) =>
+    apiClient.delete(`/food/admin/units/${id}`, { contextModule: "admin" }),
+
+  getDepartments: (params = {}) =>
+    apiClient.get("/food/admin/departments", { params, contextModule: "admin" }),
+  createDepartment: (body) =>
+    apiClient.post("/food/admin/departments", body ?? {}, { contextModule: "admin" }),
+  updateDepartment: (id, body) =>
+    apiClient.patch(`/food/admin/departments/${id}`, body ?? {}, { contextModule: "admin" }),
+  toggleDepartmentStatus: (id) =>
+    apiClient.patch(`/food/admin/departments/${id}/toggle`, {}, { contextModule: "admin" }),
+  deleteDepartment: (id) =>
+    apiClient.delete(`/food/admin/departments/${id}`, { contextModule: "admin" }),
+
   // ─── Product subscriptions (customer daily/weekly deliveries) — read-only ───
   /** One day's delivery board. `date` is YYYY-MM-DD; omit for today. */
   getSubscriptionDeliveries: (params = {}) =>
