@@ -24,6 +24,8 @@ import { requireAdminPermission, requireAnyAdminPermission } from '../../../../c
 import * as driverRegField from '../../delivery/controllers/driverRegistrationField.controller.js';
 import * as cashbackSettings from '../controllers/cashbackSettings.controller.js';
 import * as productSubscriptionAdmin from '../controllers/productSubscriptionAdmin.controller.js';
+import * as productMasters from '../controllers/productMasters.controller.js';
+import * as stockAdmin from '../controllers/stockAdmin.controller.js';
 import * as restaurantAppBanner from '../controllers/restaurantAppBanner.controller.js';
 
 const router = express.Router();
@@ -76,6 +78,14 @@ const resolveSectionFromRequest = (path = '', method = '') => {
         path.startsWith('/zones')
     ) return 'restaurant_management';
     if (path.startsWith('/categories') || path.startsWith('/addons') || path.startsWith('/foods')) return 'food_management';
+    // Product master data lives with the products it describes.
+    if (
+        path.startsWith('/brands') ||
+        path.startsWith('/units') ||
+        path.startsWith('/departments') ||
+        path.startsWith('/stocks') ||
+        path.startsWith('/stock-verifications')
+    ) return 'food_management';
     if (path.startsWith('/offers')) return 'promotions_management';
     if (path.startsWith('/orders') || path.startsWith('/order-detect-delivery')) return 'order_management';
     // Subscriptions turn into orders, and the people who work the delivery board
@@ -251,6 +261,40 @@ router.delete('/restaurant-commissions/:id', adminController.deleteRestaurantCom
 router.patch('/restaurant-commissions/:id/toggle', adminController.toggleRestaurantCommissionStatus);
 
 // ----- Categories -----
+// ----- Product master data (brands, units of measurement, departments) -----
+// The lookup tables the product form's dropdowns read.
+router.get('/brands', productMasters.listBrandsController);
+router.post('/brands', productMasters.createBrandController);
+router.patch('/brands/:id', productMasters.updateBrandController);
+router.patch('/brands/:id/toggle', productMasters.toggleBrandStatusController);
+router.delete('/brands/:id', productMasters.deleteBrandController);
+
+router.get('/units', productMasters.listUnitsController);
+router.post('/units', productMasters.createUnitController);
+router.patch('/units/:id', productMasters.updateUnitController);
+router.patch('/units/:id/toggle', productMasters.toggleUnitStatusController);
+router.delete('/units/:id', productMasters.deleteUnitController);
+
+// ----- Stocks & Stock Verification -----
+router.get('/stocks/movements', stockAdmin.listMovementsController);
+router.get('/stocks/:itemId/movements', stockAdmin.listItemMovementsController);
+router.get('/stocks', stockAdmin.listStocksController);
+router.post('/stocks/adjust', stockAdmin.adjustStockController);
+
+router.get('/stock-verifications', stockAdmin.listVerificationsController);
+router.post('/stock-verifications', stockAdmin.createVerificationController);
+router.get('/stock-verifications/:id', stockAdmin.getVerificationController);
+router.patch('/stock-verifications/:id', stockAdmin.updateVerificationController);
+router.post('/stock-verifications/:id/complete', stockAdmin.completeVerificationController);
+router.post('/stock-verifications/:id/cancel', stockAdmin.cancelVerificationController);
+router.delete('/stock-verifications/:id', stockAdmin.deleteVerificationController);
+
+router.get('/departments', productMasters.listDepartmentsController);
+router.post('/departments', productMasters.createDepartmentController);
+router.patch('/departments/:id', productMasters.updateDepartmentController);
+router.patch('/departments/:id/toggle', productMasters.toggleDepartmentStatusController);
+router.delete('/departments/:id', productMasters.deleteDepartmentController);
+
 router.get('/categories', adminController.getCategories);
 router.post('/categories', adminController.createCategory);
 router.patch('/categories/:id', adminController.updateCategory);
@@ -267,6 +311,9 @@ router.patch('/addons/:id/approve', addonsApprovalController.approveRestaurantAd
 router.patch('/addons/:id/reject', addonsApprovalController.rejectRestaurantAddon);
 
 // ----- Foods -----
+// Literal paths before /foods/:id so they are not swallowed as ids.
+router.get('/foods/next-item-code', adminController.getNextItemCode);
+router.get('/foods/deleted', adminController.getDeletedFoods);
 router.get('/foods', adminController.getFoods);
 router.get('/foods/bulk-upload/template', downloadBulkMenuTemplateController);
 router.post('/foods/bulk-upload', upload.single('file'), uploadAdminBulkMenuController);
@@ -292,10 +339,15 @@ const invalidatePublicMenus = async (_req, _res, next) => {
 };
 
 router.post('/foods', invalidatePublicMenus, adminController.createFood);
+router.patch('/foods/:id/restore', invalidatePublicMenus, adminController.restoreFood);
+router.delete('/foods/:id/purge', adminController.purgeFood);
+router.patch('/foods/:id/show-online', invalidatePublicMenus, adminController.toggleFoodShowOnline);
 router.patch('/foods/:id', invalidatePublicMenus, adminController.updateFood);
 router.delete('/foods/:id', invalidatePublicMenus, adminController.deleteFood);
 // Food approval queue (pending items created by restaurants)
 router.get('/foods/pending-approvals', foodApprovalController.getPendingFoodApprovals);
+// After every literal /foods/... GET, so none of them is read as an id.
+router.get('/foods/:id', adminController.getFoodById);
 router.patch('/foods/:id/approve', foodApprovalController.approveFoodItemController);
 router.patch('/foods/:id/reject', foodApprovalController.rejectFoodItemController);
 router.post('/foods/bulk-approve', adminController.bulkApproveFoodItems);
