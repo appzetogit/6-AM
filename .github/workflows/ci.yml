@@ -1,0 +1,173 @@
+name: CI
+
+# Every push and every PR to the long-lived branches. Concurrency cancels a
+# superseded run so a rapid series of pushes does not queue five identical jobs.
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20.x'
+
+jobs:
+  backend:
+    name: Backend — tests
+    runs-on: ubuntu-latest
+
+    # The integration tests talk to a real Mongo: the parts they cover (atomic
+    # decrements, the restock claim, unique indexes) are database behaviour, and
+    # a mock would only assert that the mock behaves like the mock.
+    services:
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+
+    defaults:
+      run:
+        working-directory: Backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: Backend/package-lock.json
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      # sharp ships prebuilt binaries and is skipped by --ignore-scripts above;
+      # it is imported at startup, so the smoke job needs it rebuilt.
+      - name: Rebuild native deps
+        run: npm rebuild sharp || true
+
+      - name: Unit checks (no database)
+        run: npm run test:unit
+
+      - name: Integration tests
+        run: npm run test:integration
+        env:
+          MONGO_TEST_URI: mongodb://127.0.0.1:27017/switcheats_test
+          JWT_ACCESS_SECRET: ci-access-secret-not-a-real-key
+          JWT_REFRESH_SECRET: ci-refresh-secret-not-a-real-key
+
+      - name: Boot the server and smoke-test it
+        run: |
+          npm start > server.log 2>&1 &
+          echo $! > server.pid
+          npm run test:smoke
+        env:
+          NODE_ENV: test
+          PORT: 5000
+          MONGO_URI: mongodb://127.0.0.1:27017/switcheats_smoke
+          REDIS_ENABLED: 'true'
+          REDIS_URL: redis://127.0.0.1:6379
+          BULLMQ_ENABLED: 'false'
+          SERVER_BACKGROUND_JOBS_ENABLED: 'false'
+          JWT_ACCESS_SECRET: ci-access-secret-not-a-real-key
+          JWT_REFRESH_SECRET: ci-refresh-secret-not-a-real-key
+          USE_DEFAULT_OTP: 'true'
+
+      - name: Server log
+        if: always()
+        run: tail -n 100 server.log || true
+
+      - name: Stop the server
+        if: always()
+        run: kill "$(cat server.pid)" 2>/dev/null || true
+
+  frontend:
+    name: Frontend — lint & build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: Frontend/package-lock.json
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      # Advisory, deliberately.
+      #
+      # `npm run lint` existed in package.json but there was no eslint config,
+      # so it had never run and nothing was ever linted. Switching it on found
+      # ~161 real errors already in the tree (conditional hooks, duplicate object
+      # keys, undefined variables, unreachable code) plus ~1955 warnings.
+      #
+      # Failing here on day one would block every unrelated change behind a
+      # cleanup nobody has scheduled. The step reports instead, so the count is
+      # visible on every run and can be driven down; flip continue-on-error off
+      # once it reaches zero, and it can never come back.
+      - name: Lint (advisory — see the error backlog)
+        continue-on-error: true
+        run: npm run lint
+
+      # Errors in code added by this PR should not be waved through, even while
+      # the historical backlog is advisory.
+      - name: Lint changed files (blocking)
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          CHANGED=$(git diff --name-only --diff-filter=ACMR "origin/${{ github.base_ref }}"...HEAD \
+            -- 'Frontend/src/**/*.js' 'Frontend/src/**/*.jsx' | sed 's|^Frontend/||' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No frontend source files changed."
+            exit 0
+          fi
+          echo "$CHANGED"
+          npx eslint $CHANGED
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: Frontend/dist
+          retention-days: 7
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    # Advisory: a new CVE in a transitive dependency should be visible without
+    # blocking an unrelated bug fix from merging.
+    continue-on-error: true
+    strategy:
+      matrix:
+        app: [Backend, Frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: npm audit (${{ matrix.app }})
+        working-directory: ${{ matrix.app }}
+        run: npm audit --audit-level=high
