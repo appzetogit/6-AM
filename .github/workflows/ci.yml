@@ -17,8 +17,36 @@ env:
   NODE_VERSION: '20.x'
 
 jobs:
+  # Runs before anything installs or builds, and gates both jobs that do.
+  #
+  # origin/master was force-pushed twice with malware appended to
+  # Frontend/vite.config.js. Vite loads that file, so `npm run build` executed
+  # it right here on the runner, with the job's secrets in reach. Checking it
+  # after the build would be reporting a burglary from inside the house.
+  #
+  # It is deliberately the cheapest job in the file — no install, no cache, just
+  # Node reading some text — so gating on it costs seconds.
+  guard:
+    name: Build-config guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # A scanner that has quietly stopped detecting anything is worse than no
+      # scanner, because it reads as a green check.
+      - name: Self-check the scanner
+        run: node .github/scripts/scan-build-config.mjs --selftest
+
+      - name: Scan files that execute on install and build
+        run: node .github/scripts/scan-build-config.mjs
+
   backend:
     name: Backend — tests
+    needs: guard
     runs-on: ubuntu-latest
 
     # The integration tests talk to a real Mongo: the parts they cover (atomic
@@ -96,6 +124,7 @@ jobs:
 
   frontend:
     name: Frontend — lint & build
+    needs: guard
     runs-on: ubuntu-latest
     defaults:
       run:
