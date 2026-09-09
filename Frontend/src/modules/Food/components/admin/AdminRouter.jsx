@@ -18,6 +18,15 @@ const OrdersPage = lazy(() => import("@food/pages/admin/orders/OrdersPage"));
 const UserCarts = lazy(() => import("@food/pages/admin/orders/UserCarts"));
 const OrderDetectDelivery = lazy(() => import("@food/pages/admin/OrderDetectDelivery"));
 const SubscriptionsManagement = lazy(() => import("@food/pages/admin/subscriptions/SubscriptionsManagement"));
+const ProductMasters = lazy(() => import("@food/pages/admin/masters/ProductMasters"));
+const CategoryBrand = lazy(() => import("@food/pages/admin/masters/CategoryBrand"));
+const Department = lazy(() => import("@food/pages/admin/masters/Department"));
+const ProductsList = lazy(() => import("@food/pages/admin/products/ProductsList"));
+const ProductForm = lazy(() => import("@food/pages/admin/products/ProductForm"));
+const DeletedProducts = lazy(() => import("@food/pages/admin/products/DeletedProducts"));
+const Stocks = lazy(() => import("@food/pages/admin/stocks/Stocks"));
+const StockVerification = lazy(() => import("@food/pages/admin/stocks/StockVerification"));
+const StockVerificationForm = lazy(() => import("@food/pages/admin/stocks/StockVerificationForm"));
 const Category = lazy(() => import("@food/pages/admin/categories/Category"));
 const FeeSettings = lazy(() => import("@food/pages/admin/fee-settings/FeeSettings"));
 const ReferralSettings = lazy(() => import("@food/pages/admin/referral-settings/ReferralSettings"));
@@ -275,6 +284,9 @@ export default function AdminRouter() {
             <Route path="orders/user-carts" element={<UserCarts />} />
             <Route path="order-detect-delivery" element={<OrderDetectDelivery />} />
             <Route path="subscriptions" element={<SubscriptionsManagement />} />
+            <Route path="brands" element={<CategoryBrand />} />
+            <Route path="units" element={<ProductMasters />} />
+            <Route path="departments" element={<Department />} />
             <Route path="order-refunds/new" element={<NewRefundRequests />} />
 
             {/* RESTAURANT MANAGEMENT */}
@@ -323,7 +335,15 @@ export default function AdminRouter() {
             <Route path="fee-settings" element={<FeeSettings />} />
             <Route path="referral-settings" element={<ReferralSettings />} />
             <Route path="foods" element={<FoodsList />} />
-            <Route path="products" element={<FoodsList />} />
+            <Route path="products" element={<ProductsList />} />
+            <Route path="products/new" element={<ProductForm />} />
+            <Route path="products/deleted" element={<DeletedProducts />} />
+            <Route path="products/:id/edit" element={<ProductForm />} />
+            <Route path="category-brand" element={<CategoryBrand />} />
+            <Route path="stocks" element={<Stocks />} />
+            <Route path="stock-verification" element={<StockVerification />} />
+            <Route path="stock-verification/new" element={<StockVerificationForm />} />
+            <Route path="stock-verification/:id" element={<StockVerificationForm />} />
             <Route path="food/list" element={<FoodsList />} />
             <Route path="addons" element={<AddonsList />} />
 
