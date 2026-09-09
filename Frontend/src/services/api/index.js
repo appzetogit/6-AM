@@ -689,6 +689,18 @@ export const adminAPI = {
   getFoods: (params = {}) =>
     apiClient.get("/food/admin/foods", { params, contextModule: "admin" }),
 
+  // ─── Dashboard widgets ───
+  getDashboardAnalytics: (params = {}) =>
+    apiClient.get("/food/admin/dashboard-analytics", { params, contextModule: "admin" }),
+  getTopCustomers: (params = {}) =>
+    apiClient.get("/food/admin/dashboard-analytics/top-customers", { params, contextModule: "admin" }),
+  getCustomerSegments: (params = {}) =>
+    apiClient.get("/food/admin/dashboard-analytics/customer-segments", { params, contextModule: "admin" }),
+  getCategorySales: (params = {}) =>
+    apiClient.get("/food/admin/dashboard-analytics/category-sales", { params, contextModule: "admin" }),
+  getProductSales: (params = {}) =>
+    apiClient.get("/food/admin/dashboard-analytics/product-sales", { params, contextModule: "admin" }),
+
   // ─── Stocks & Stock Verification ───
   getStocks: (params = {}) =>
     apiClient.get("/food/admin/stocks", { params, contextModule: "admin" }),
