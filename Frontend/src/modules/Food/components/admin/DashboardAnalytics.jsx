@@ -112,6 +112,57 @@ function usePanel(fetcher, initialRange) {
   return { range, setRange, data, loading }
 }
 
+
+/** A plain list panel with no date range — used by the receivable/payable pairs. */
+function LedgerPanel({ title, cols, rows, loading, total, empty }) {
+  return (
+    <section className="flex flex-col rounded-md border border-neutral-200 bg-white shadow-sm">
+      <header className="flex items-center justify-between px-4 py-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-800">{title}</h2>
+        {total > 0 && <span className="text-sm font-semibold text-neutral-800">{money(total)}</span>}
+      </header>
+      <div className="flex-1 overflow-x-auto px-4 pb-4">
+        <table className="w-full min-w-[380px] text-sm">
+          <thead>
+            <tr>{cols.map((c) => <Th key={c.key} right={c.right}>{c.label}</Th>)}</tr>
+          </thead>
+          <tbody>
+            {loading ? <Busy cols={cols.length} />
+              : !rows.length ? <Empty cols={cols.length}>{empty}</Empty>
+              : rows.map((r, i) => (
+                <tr key={r.id || i}>
+                  {cols.map((c) => (
+                    <Td key={c.key} right={c.right}>{c.render ? c.render(r, i) : r[c.key]}</Td>
+                  ))}
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Receivable is what sellers owe the platform (subscription invoices); payable
+ * is what the platform owes sellers and riders (withdrawal requests). This
+ * business has no customer invoices or suppliers, so the columns say Seller and
+ * Rider rather than Customer and Supplier.
+ */
+const receivableCols = [
+  { key: "n", label: "#", render: (_r, i) => i + 1 },
+  { key: "partyName", label: "Seller Name" },
+  { key: "invoiceNo", label: "Invoice No." },
+  { key: "pendingAmount", label: "Pending Amount", right: true, render: (r) => money(r.pendingAmount) },
+]
+
+const payableCols = [
+  { key: "n", label: "#", render: (_r, i) => i + 1 },
+  { key: "partyName", label: "Seller / Rider", render: (r) => `${r.partyName} (${r.partyType})` },
+  { key: "billNo", label: "Request No." },
+  { key: "pendingAmount", label: "Pending Amount", right: true, render: (r) => money(r.pendingAmount) },
+]
+
 export default function DashboardAnalytics() {
   const customers = usePanel(
     useCallback(async (r) => (await adminAPI.getTopCustomers({ ...r, limit: 20 }))?.data?.data, []),
@@ -129,6 +180,39 @@ export default function DashboardAnalytics() {
     useCallback(async (r) => (await adminAPI.getProductSales({ ...r, order: "least", limit: 10 }))?.data?.data, []),
     { from: monthStart(), to: monthEnd() }
   )
+
+  const coupons = usePanel(
+    useCallback(async (r) => (await adminAPI.getTopCoupons({ ...r, limit: 10 }))?.data?.data, []),
+    { from: monthStart(), to: monthEnd() }
+  )
+
+  // The four money panels and the login log take no range, so they load once.
+  const [ledger, setLedger] = useState({ loading: true })
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const [tr, ar, tp, ap, log] = await Promise.all([
+          adminAPI.getReceivables({ today: "true" }),
+          adminAPI.getReceivables({}),
+          adminAPI.getPayables({ today: "true" }),
+          adminAPI.getPayables({}),
+          adminAPI.getLoginLog({ limit: 5 }),
+        ])
+        setLedger({
+          loading: false,
+          todayReceivable: tr?.data?.data,
+          toReceive: ar?.data?.data,
+          todayPayable: tp?.data?.data,
+          toPay: ap?.data?.data,
+          loginLog: log?.data?.data,
+        })
+      } catch {
+        // Each panel renders its own empty state; one failure must not blank
+        // the sales widgets above.
+        setLedger({ loading: false })
+      }
+    })()
+  }, [])
 
   const [segments, setSegments] = useState(null)
   useEffect(() => {
@@ -239,6 +323,84 @@ export default function DashboardAnalytics() {
         <ProductPanel title="Best Selling Product" panel={best} />
         <ProductPanel title="Least Selling Product" panel={least} />
       </div>
+
+      {/* Row 3 — coupons | receivable/payable pairs | login log */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Panel title="Top Coupons" range={coupons.range} onRangeChange={coupons.setRange}>
+          <table className="w-full min-w-[460px] text-sm">
+            <thead>
+              <tr><Th>#</Th><Th>Coupon Name</Th><Th right>No. of Bills</Th><Th right>Total Bill Amount</Th></tr>
+            </thead>
+            <tbody>
+              {coupons.loading ? <Busy cols={4} />
+                : !(coupons.data?.coupons || []).length ? <Empty cols={4}>No Data Found</Empty>
+                : coupons.data.coupons.map((c, i) => (
+                  <tr key={c.couponCode}>
+                    <Td>{i + 1}</Td>
+                    <Td link>
+                      {c.couponName}
+                      {c.terms && <span className="ml-1 text-xs text-neutral-500">({c.terms})</span>}
+                    </Td>
+                    <Td right>{num(c.bills)}</Td>
+                    <Td right>{money(c.totalBillAmount)}</Td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </Panel>
+
+        <LedgerPanel
+          title="Login Log"
+          loading={ledger.loading}
+          rows={ledger.loginLog?.logins || []}
+          empty="No Data Found"
+          cols={[
+            { key: "n", label: "#", render: (_r, i) => i + 1 },
+            { key: "loginAt", label: "Login Time", render: (r) => `${r.name} logged in at ${new Date(r.loginAt).toLocaleString("en-IN")}` },
+            { key: "ipAddress", label: "IP Address" },
+            { key: "systemDetails", label: "System Details" },
+          ]}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <LedgerPanel
+          title="Today's Receivable"
+          loading={ledger.loading}
+          rows={ledger.todayReceivable?.items || []}
+          total={ledger.todayReceivable?.total}
+          empty="No Data Found"
+          cols={receivableCols}
+        />
+        <LedgerPanel
+          title="Today's Payable"
+          loading={ledger.loading}
+          rows={ledger.todayPayable?.items || []}
+          total={ledger.todayPayable?.total}
+          empty="No Data Found"
+          cols={payableCols}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <LedgerPanel
+          title="To Receive"
+          loading={ledger.loading}
+          rows={ledger.toReceive?.items || []}
+          total={ledger.toReceive?.total}
+          empty="No Data Found"
+          cols={receivableCols}
+        />
+        <LedgerPanel
+          title="To Pay"
+          loading={ledger.loading}
+          rows={ledger.toPay?.items || []}
+          total={ledger.toPay?.total}
+          empty="No Data Found"
+          cols={payableCols}
+        />
+      </div>
+
     </div>
   )
 }
