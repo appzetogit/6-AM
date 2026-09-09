@@ -27,6 +27,7 @@ import * as productSubscriptionAdmin from '../controllers/productSubscriptionAdm
 import * as productMasters from '../controllers/productMasters.controller.js';
 import * as stockAdmin from '../controllers/stockAdmin.controller.js';
 import * as dashboardAnalytics from '../controllers/dashboardAnalytics.controller.js';
+import * as dashboardOperations from '../controllers/dashboardOperations.controller.js';
 import * as restaurantAppBanner from '../controllers/restaurantAppBanner.controller.js';
 
 const router = express.Router();
@@ -98,7 +99,7 @@ const resolveSectionFromRequest = (path = '', method = '') => {
     if (path.startsWith('/reports')) return 'report_management';
     if (path.startsWith('/feature-settings') || path.startsWith('/business-settings') || path.startsWith('/power-scanning') || path.startsWith('/notifications')) return 'system_settings';
     if (path.startsWith('/pages-social-media')) return 'pages_social_media';
-    if (path.startsWith('/sidebar-badges') || path.startsWith('/dashboard-stats') || path.startsWith('/dashboard-analytics')) return 'dashboard';
+    if (path.startsWith('/sidebar-badges') || path.startsWith('/dashboard-stats') || path.startsWith('/dashboard-analytics') || path.startsWith('/dashboard-operations')) return 'dashboard';
     return null;
 };
 
@@ -204,6 +205,11 @@ router.get('/dashboard-analytics/top-customers', dashboardAnalytics.getTopCustom
 router.get('/dashboard-analytics/customer-segments', dashboardAnalytics.getCustomerSegmentsController);
 router.get('/dashboard-analytics/category-sales', dashboardAnalytics.getCategorySalesController);
 router.get('/dashboard-analytics/product-sales', dashboardAnalytics.getProductSalesController);
+router.get('/dashboard-operations', dashboardOperations.getDashboardOperationsController);
+router.get('/dashboard-operations/top-coupons', dashboardOperations.getTopCouponsController);
+router.get('/dashboard-operations/receivables', dashboardOperations.getReceivablesController);
+router.get('/dashboard-operations/payables', dashboardOperations.getPayablesController);
+router.get('/dashboard-operations/login-log', dashboardOperations.getLoginLogController);
 router.get('/reports/restaurants', adminController.getRestaurantReport);
 router.get('/reports/transactions', adminController.getTransactionReport);
 router.get('/reports/tax', adminController.getTaxReport);
