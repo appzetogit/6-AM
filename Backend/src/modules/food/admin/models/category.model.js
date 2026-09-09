@@ -4,6 +4,9 @@ const foodCategorySchema = new mongoose.Schema(
     {
         name: { type: String, required: true, trim: true, index: true },
         image: { type: String, trim: true, default: '' },
+        /** Short code shown on the Category list and printed reports. */
+        code: { type: String, trim: true, default: '' },
+        description: { type: String, trim: true, default: '' },
         type: { type: String, trim: true, default: '' },
         foodTypeScope: { type: String, enum: ['Veg', 'Non-Veg', 'Both'], default: 'Both', index: true },
         /**
