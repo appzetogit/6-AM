@@ -26,6 +26,7 @@ import * as cashbackSettings from '../controllers/cashbackSettings.controller.js
 import * as productSubscriptionAdmin from '../controllers/productSubscriptionAdmin.controller.js';
 import * as productMasters from '../controllers/productMasters.controller.js';
 import * as stockAdmin from '../controllers/stockAdmin.controller.js';
+import * as dashboardAnalytics from '../controllers/dashboardAnalytics.controller.js';
 import * as restaurantAppBanner from '../controllers/restaurantAppBanner.controller.js';
 
 const router = express.Router();
@@ -97,7 +98,7 @@ const resolveSectionFromRequest = (path = '', method = '') => {
     if (path.startsWith('/reports')) return 'report_management';
     if (path.startsWith('/feature-settings') || path.startsWith('/business-settings') || path.startsWith('/power-scanning') || path.startsWith('/notifications')) return 'system_settings';
     if (path.startsWith('/pages-social-media')) return 'pages_social_media';
-    if (path.startsWith('/sidebar-badges') || path.startsWith('/dashboard-stats')) return 'dashboard';
+    if (path.startsWith('/sidebar-badges') || path.startsWith('/dashboard-stats') || path.startsWith('/dashboard-analytics')) return 'dashboard';
     return null;
 };
 
@@ -196,6 +197,13 @@ router.get(
     adminController.getRestaurants
 );
 router.get('/dashboard-stats', adminController.getDashboardStats);
+
+// ----- Dashboard widgets (top customers, segments, category & product sales) -----
+router.get('/dashboard-analytics', dashboardAnalytics.getDashboardAnalyticsController);
+router.get('/dashboard-analytics/top-customers', dashboardAnalytics.getTopCustomersController);
+router.get('/dashboard-analytics/customer-segments', dashboardAnalytics.getCustomerSegmentsController);
+router.get('/dashboard-analytics/category-sales', dashboardAnalytics.getCategorySalesController);
+router.get('/dashboard-analytics/product-sales', dashboardAnalytics.getProductSalesController);
 router.get('/reports/restaurants', adminController.getRestaurantReport);
 router.get('/reports/transactions', adminController.getTransactionReport);
 router.get('/reports/tax', adminController.getTaxReport);
