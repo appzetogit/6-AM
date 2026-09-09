@@ -16,6 +16,9 @@ import { FoodZone } from '../models/zone.model.js';
 import { invalidateActiveZonesCache } from '../../shared/zoneServiceability.js';
 import { FoodCategory } from '../models/category.model.js';
 import { FoodItem } from '../models/food.model.js';
+import { FoodBrand } from '../models/brand.model.js';
+import { FoodUnit } from '../models/unit.model.js';
+import { FoodCounter, nextItemCode } from '../models/counter.model.js';
 import { FoodOffer } from '../models/offer.model.js';
 import { FoodOfferUsage } from '../models/offerUsage.model.js';
 import { DeliveryBonusTransaction } from '../models/deliveryBonusTransaction.model.js';
@@ -3351,8 +3354,16 @@ export async function getCategories(query) {
         : [];
     const restaurantMap = new Map(restaurants.map((restaurant) => [String(restaurant._id), restaurant]));
 
+    // Parent names for the "Parent Category" column, in one lookup.
+    const parentIds = Array.from(new Set(list.map((c) => String(c?.parentId || '')).filter(Boolean)));
+    const parents = parentIds.length
+        ? await FoodCategory.find({ _id: { $in: parentIds } }).select('name').lean()
+        : [];
+    const parentNameMap = new Map(parents.map((p) => [String(p._id), p.name]));
+
     const hydratedList = list.map((category) => ({
         ...category,
+        parentName: category?.parentId ? parentNameMap.get(String(category.parentId)) || '' : '',
         restaurantId: category?.restaurantId ? restaurantMap.get(String(category.restaurantId)) || category.restaurantId : category.restaurantId,
         createdByRestaurantId: category?.createdByRestaurantId ? restaurantMap.get(String(category.createdByRestaurantId)) || category.createdByRestaurantId : category.createdByRestaurantId
     }));
@@ -3399,6 +3410,8 @@ export async function createCategory(body) {
     const doc = new FoodCategory({
         name,
         image: typeof body.image === 'string' ? body.image.trim() : '',
+        code: typeof body.code === 'string' ? body.code.trim() : '',
+        description: typeof body.description === 'string' ? body.description.trim() : '',
         type: typeof body.type === 'string' ? body.type.trim() : '',
         foodTypeScope: normalizeCategoryFoodTypeScope(body.foodTypeScope, 'Both'),
         zoneId:
@@ -3506,6 +3519,8 @@ export async function updateCategory(id, body) {
     }
 
     if (body.name !== undefined) doc.name = String(body.name || '').trim();
+    if (body.code !== undefined) doc.code = String(body.code || '').trim();
+    if (body.description !== undefined) doc.description = String(body.description || '').trim();
     if (body.image !== undefined) doc.image = String(body.image || '').trim();
     if (body.type !== undefined) doc.type = String(body.type || '').trim();
     if (body.foodTypeScope !== undefined) doc.foodTypeScope = nextFoodTypeScope;
@@ -3789,16 +3804,30 @@ export async function getFoods(query) {
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 100, 1), 1000);
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
-    const filter = {};
+    // Soft-deleted rows live on the "Deleted Products" screen, never here.
+    const filter = { isDeleted: { $ne: true } };
 
     if (query.restaurantId && mongoose.Types.ObjectId.isValid(query.restaurantId)) {
         filter.restaurantId = query.restaurantId;
     }
+    if (query.categoryId && mongoose.Types.ObjectId.isValid(query.categoryId)) {
+        filter.categoryId = new mongoose.Types.ObjectId(query.categoryId);
+    }
+    if (query.brandId && mongoose.Types.ObjectId.isValid(query.brandId)) {
+        filter.brandId = new mongoose.Types.ObjectId(query.brandId);
+    }
+    if (query.status === 'active') filter.isAvailable = true;
+    if (query.status === 'inactive') filter.isAvailable = false;
+    if (query.showOnline === 'true') filter.showOnline = true;
+    if (query.showOnline === 'false') filter.showOnline = { $ne: true };
     if (query.search && String(query.search).trim()) {
-        const term = String(query.search).trim();
+        const term = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         filter.$or = [
             { name: { $regex: term, $options: 'i' } },
-            { categoryName: { $regex: term, $options: 'i' } }
+            { categoryName: { $regex: term, $options: 'i' } },
+            { itemCode: { $regex: term, $options: 'i' } },
+            { brand: { $regex: term, $options: 'i' } },
+            { hsnCode: { $regex: term, $options: 'i' } }
         ];
     }
     if (query.approvalStatus && ['pending', 'approved', 'rejected'].includes(String(query.approvalStatus))) {
@@ -3814,23 +3843,51 @@ export async function getFoods(query) {
         FoodItem.countDocuments(filter)
     ]);
 
-    const restaurantIds = Array.from(new Set(list.map((f) => String(f.restaurantId)).filter(Boolean)));
-    const restaurants = restaurantIds.length
-        ? await FoodRestaurant.find({ _id: { $in: restaurantIds } }).select('restaurantName').lean()
-        : [];
+    const ids = (key) => Array.from(new Set(list.map((f) => String(f[key] || '')).filter(Boolean)));
+    const brandIds = [...new Set([...ids('brandId'), ...ids('subBrandId')])];
+    const [restaurants, brands, units] = await Promise.all([
+        ids('restaurantId').length
+            ? FoodRestaurant.find({ _id: { $in: ids('restaurantId') } }).select('restaurantName').lean()
+            : [],
+        brandIds.length ? FoodBrand.find({ _id: { $in: brandIds } }).select('name').lean() : [],
+        ids('unitId').length ? FoodUnit.find({ _id: { $in: ids('unitId') } }).select('name shortName').lean() : []
+    ]);
     const restaurantMap = new Map(restaurants.map((r) => [String(r._id), r.restaurantName]));
+    const brandMap = new Map(brands.map((b) => [String(b._id), b.name]));
+    const unitMap = new Map(units.map((u) => [String(u._id), u]));
 
-    const foods = list.map((f) => ({
+    const foods = list.map((f) => serializeAdminFoodRow(f, restaurantMap, brandMap, unitMap));
+
+    return { foods, total, page, limit };
+}
+
+/**
+ * One product row, for the list and the deleted list alike.
+ *
+ * The vasy columns (Item Code, Brand, HSN, Qty, Show Online) come out here next
+ * to the fields the older screens read, so both the new product list and every
+ * consumer that already parses this shape keep working.
+ */
+function serializeAdminFoodRow(f, restaurantMap, brandMap, unitMap = new Map()) {
+    const unit = f.unitId ? unitMap.get(String(f.unitId)) : null;
+    return {
         id: f._id,
         _id: f._id,
         restaurantId: f.restaurantId,
         restaurantName: restaurantMap.get(String(f.restaurantId)) || 'Unknown Restaurant',
         categoryId: f.categoryId || null,
         categoryName: f.categoryName || '',
+        subCategoryId: f.subCategoryId || null,
+        departmentId: f.departmentId || null,
         name: f.name,
+        printName: f.printName || '',
+        itemCode: f.itemCode || '',
+        productType: f.productType || 'Finished',
         description: f.description || '',
+        shortDescription: f.shortDescription || '',
         price: getFoodDisplayPrice(f),
         otherPrice: getFoodDisplayOtherPrice(f),
+        mrp: f.mrp ?? null,
         variants: serializeFoodVariants(f.variants),
         variations: serializeFoodVariants(f.variants),
         image: f.image || '',
@@ -3841,16 +3898,55 @@ export async function getFoods(query) {
             ? f.images
             : (f.image ? [f.image] : []),
         foodType: f.foodType || 'Non-Veg',
+        // Structured brand wins; the free-text `brand` is what older rows carry.
+        brandId: f.brandId || null,
+        brandName: (f.brandId && brandMap.get(String(f.brandId))) || f.brand || '',
+        brand: f.brand || '',
+        subBrandId: f.subBrandId || null,
+        subBrandName: (f.subBrandId && brandMap.get(String(f.subBrandId))) || '',
+        unitId: f.unitId || null,
+        unitName: unit?.name || '',
+        unitShortName: unit?.shortName || '',
+        additionalUnitIds: f.additionalUnitIds || [],
+        hsnCode: f.hsnCode || '',
+        gstRate: f.gstRate ?? null,
+        salesTaxInclusive: f.salesTaxInclusive === true,
+        purchaseTaxRate: f.purchaseTaxRate ?? null,
+        purchaseTaxInclusive: f.purchaseTaxInclusive === true,
+        cessEnabled: f.cessEnabled === true,
+        cessRate: f.cessRate ?? null,
+        manageMultipleBatch: f.manageMultipleBatch === true,
+        nutrition: f.nutrition || [],
+        netWeight: f.netWeight ?? null,
+        netWeightUnitId: f.netWeightUnitId || null,
+        additionalInfo: f.additionalInfo || '',
+        purchasePrice: f.purchasePrice ?? null,
+        landingCost: f.landingCost ?? null,
+        sellingDiscount: f.sellingDiscount ?? null,
+        sellingMargin: f.sellingMargin ?? null,
+        retailerDiscount: f.retailerDiscount ?? null,
+        retailerPrice: f.retailerPrice ?? null,
+        retailerMargin: f.retailerMargin ?? null,
+        wholesalerDiscount: f.wholesalerDiscount ?? null,
+        wholesalerPrice: f.wholesalerPrice ?? null,
+        wholesalerMargin: f.wholesalerMargin ?? null,
+        onlinePrice: f.onlinePrice ?? null,
+        minimumQuantity: f.minimumQuantity ?? null,
+        stockQty: f.stockQty ?? null,
+        lowStockThreshold: f.lowStockThreshold ?? null,
+        maxQtyPerOrder: f.maxQtyPerOrder ?? null,
+        packSize: f.packSize || '',
+        showOnline: f.showOnline === true,
         isAvailable: f.isAvailable !== false,
         isRecommended: f.isRecommended === true,
         subscriptionEnabled: f.subscriptionEnabled === true,
         preparationTime: f.preparationTime || '',
         approvalStatus: f.approvalStatus || 'approved',
+        isDeleted: f.isDeleted === true,
+        deletedAt: f.deletedAt || null,
         createdAt: f.createdAt,
         updatedAt: f.updatedAt
-    }));
-
-    return { foods, total, page, limit };
+    };
 }
 
 const resolveAdminFoodCategory = async ({ categoryId, categoryName, foodType, pureVegRestaurant }) => {
@@ -4009,6 +4105,75 @@ export async function createFood(body) {
         ...buildAdminCatalogFields(body),
         approvalStatus: 'approved'
     });
+    // "Item Code/Barcode (Auto Generate)": typed code wins, otherwise the counter.
+    if (!doc.itemCode) doc.itemCode = await nextItemCode();
+    if (!doc.printName) doc.printName = name;
+    await doc.save();
+    return doc.toObject();
+}
+
+/** One product with every master-data name resolved — what the edit form loads. */
+export async function getFoodById(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const f = await FoodItem.findById(id).lean();
+    if (!f) return null;
+    const brandIds = [f.brandId, f.subBrandId].filter(Boolean);
+    const unitIds = [f.unitId, f.netWeightUnitId, ...(f.additionalUnitIds || [])].filter(Boolean);
+    const [restaurant, brands, units] = await Promise.all([
+        FoodRestaurant.findById(f.restaurantId).select('restaurantName').lean(),
+        brandIds.length ? FoodBrand.find({ _id: { $in: brandIds } }).select('name').lean() : [],
+        unitIds.length ? FoodUnit.find({ _id: { $in: unitIds } }).select('name shortName').lean() : []
+    ]);
+    const restaurantMap = new Map(restaurant ? [[String(restaurant._id), restaurant.restaurantName]] : []);
+    const brandMap = new Map(brands.map((b) => [String(b._id), b.name]));
+    const unitMap = new Map(units.map((u) => [String(u._id), u]));
+    return serializeAdminFoodRow(f, restaurantMap, brandMap, unitMap);
+}
+
+/** Preview of the code the next "Create New" would get, for the form's read-only field. */
+export async function peekNextItemCode() {
+    const doc = await FoodCounter.findById('food_item_code').lean();
+    return `PRD${String((doc?.seq || 0) + 1).padStart(10, '0')}`;
+}
+
+/** Soft-deleted products, newest deletion first — the "Deleted Products" screen. */
+export async function listDeletedFoods(query = {}) {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 500);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const filter = { isDeleted: true };
+    if (query.search && String(query.search).trim()) {
+        const rx = new RegExp(String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        filter.$or = [{ name: rx }, { itemCode: rx }];
+    }
+    const [list, total] = await Promise.all([
+        FoodItem.find(filter).sort({ deletedAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+        FoodItem.countDocuments(filter)
+    ]);
+    return { foods: list.map((f) => serializeAdminFoodRow(f, new Map(), new Map())), total, page, limit };
+}
+
+export async function restoreFood(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const doc = await FoodItem.findOneAndUpdate(
+        { _id: id, isDeleted: true },
+        { $set: { isDeleted: false, deletedAt: null } },
+        { new: true }
+    ).lean();
+    return doc ? { id } : null;
+}
+
+/** Permanent removal, only from the deleted list. */
+export async function purgeFood(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const deleted = await FoodItem.findOneAndDelete({ _id: id, isDeleted: true }).lean();
+    return deleted ? { id } : null;
+}
+
+export async function toggleFoodShowOnline(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const doc = await FoodItem.findById(id);
+    if (!doc) return null;
+    doc.showOnline = !doc.showOnline;
     await doc.save();
     return doc.toObject();
 }
@@ -4028,14 +4193,82 @@ function buildAdminCatalogFields(body = {}) {
         throw new ValidationError(`Price cannot be above the MRP of ${mrp}`);
     }
 
+    const str = (value) => (typeof value === 'string' ? value.trim() : undefined);
+    const bool = (value) => (value === undefined ? undefined : value === true || value === 'true');
+    // A reference field accepts a valid id, or an explicit empty/null to clear it.
+    const ref = (value) => {
+        if (value === undefined) return undefined;
+        if (value === null || value === '') return null;
+        if (!mongoose.Types.ObjectId.isValid(String(value))) throw new ValidationError('Invalid reference id');
+        return new mongoose.Types.ObjectId(String(value));
+    };
+
+    let additionalUnitIds;
+    if (body.additionalUnitIds !== undefined) {
+        const list = Array.isArray(body.additionalUnitIds) ? body.additionalUnitIds : [];
+        additionalUnitIds = list.map((v) => ref(v)).filter(Boolean);
+        // The primary unit plus these makes three — vasy's "Max. 3 Units" rule.
+        if (additionalUnitIds.length > 2) throw new ValidationError('A product can have at most 3 units');
+    }
+
+    let nutrition;
+    if (body.nutrition !== undefined) {
+        const list = Array.isArray(body.nutrition) ? body.nutrition : [];
+        nutrition = list
+            .map((n) => ({ name: str(n?.name) || '', value: str(n?.value) || '', unit: str(n?.unit) || '' }))
+            .filter((n) => n.name);
+    }
+
+    let productType;
+    if (body.productType !== undefined) {
+        const allowed = ['Finished', 'Raw Material', 'Semi Finished', 'Service', 'Consumable'];
+        productType = allowed.includes(body.productType) ? body.productType : 'Finished';
+    }
+
     return {
-        brand: typeof body.brand === 'string' ? body.brand.trim() : undefined,
-        packSize: typeof body.packSize === 'string' ? body.packSize.trim() : undefined,
+        brand: str(body.brand),
+        packSize: str(body.packSize),
         mrp,
         gstRate: num(body.gstRate, { max: 100 }),
         stockQty: num(body.stockQty),
         lowStockThreshold: num(body.lowStockThreshold),
-        maxQtyPerOrder: num(body.maxQtyPerOrder, { min: 1 })
+        maxQtyPerOrder: num(body.maxQtyPerOrder, { min: 1 }),
+
+        // ── vasy product master fields ──
+        itemCode: str(body.itemCode),
+        productType,
+        printName: str(body.printName),
+        subCategoryId: ref(body.subCategoryId),
+        departmentId: ref(body.departmentId),
+        brandId: ref(body.brandId),
+        subBrandId: ref(body.subBrandId),
+        unitId: ref(body.unitId),
+        additionalUnitIds,
+        hsnCode: str(body.hsnCode),
+        purchaseTaxRate: num(body.purchaseTaxRate, { max: 100 }),
+        purchaseTaxInclusive: bool(body.purchaseTaxInclusive),
+        salesTaxInclusive: bool(body.salesTaxInclusive),
+        cessEnabled: bool(body.cessEnabled),
+        cessRate: num(body.cessRate, { max: 100 }),
+        manageMultipleBatch: bool(body.manageMultipleBatch),
+        shortDescription: str(body.shortDescription),
+        nutrition,
+        netWeight: num(body.netWeight),
+        netWeightUnitId: ref(body.netWeightUnitId),
+        additionalInfo: str(body.additionalInfo),
+        purchasePrice: num(body.purchasePrice),
+        landingCost: num(body.landingCost),
+        sellingDiscount: num(body.sellingDiscount),
+        sellingMargin: body.sellingMargin === undefined || body.sellingMargin === '' ? undefined : Number(body.sellingMargin),
+        retailerDiscount: num(body.retailerDiscount),
+        retailerPrice: num(body.retailerPrice),
+        retailerMargin: body.retailerMargin === undefined || body.retailerMargin === '' ? undefined : Number(body.retailerMargin),
+        wholesalerDiscount: num(body.wholesalerDiscount),
+        wholesalerPrice: num(body.wholesalerPrice),
+        wholesalerMargin: body.wholesalerMargin === undefined || body.wholesalerMargin === '' ? undefined : Number(body.wholesalerMargin),
+        onlinePrice: num(body.onlinePrice),
+        minimumQuantity: num(body.minimumQuantity),
+        showOnline: bool(body.showOnline)
     };
 }
 
@@ -4094,7 +4327,13 @@ export async function updateFood(id, body) {
 
 export async function deleteFood(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const deleted = await FoodItem.findByIdAndDelete(id).lean();
+    // Soft delete: the row moves to "Deleted Products" and can be restored.
+    // Permanent removal is purgeFood(), reachable only from that screen.
+    const deleted = await FoodItem.findOneAndUpdate(
+        { _id: id, isDeleted: { $ne: true } },
+        { $set: { isDeleted: true, deletedAt: new Date(), isAvailable: false, showOnline: false } },
+        { new: true }
+    ).lean();
     if (deleted?.restaurantId) {
         try {
             const { invalidateCache } = await import('../../../../middleware/cache.js');
