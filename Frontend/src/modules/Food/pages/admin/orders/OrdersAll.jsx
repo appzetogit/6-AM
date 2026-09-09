@@ -73,3 +73,8 @@ export default function OrdersAll() {
     </div>
   )
 }
+
+/* end of legacy reference block — the comment opened above was never closed,
+   which left this file unparseable by the linter even though esbuild tolerated
+   a comment running to EOF. */
+}
