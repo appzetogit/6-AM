@@ -92,6 +92,12 @@ const foodSchema = new mongoose.Schema(
          * genuinely deplete independently.
          */
         stockQty: { type: Number, default: null, min: 0 },
+        /**
+         * Units held back for quality testing / samples: on the shelf, but not
+         * sellable. Reported beside the available quantity, never deducted by an
+         * order, so the two numbers stay independent.
+         */
+        testingQty: { type: Number, default: 0, min: 0 },
         /** Below this, the item is flagged to the seller. `null` disables the flag. */
         lowStockThreshold: { type: Number, default: null, min: 0 },
         /** Cap per single order, so one buyer cannot clear the shelf. `null` = uncapped. */
@@ -106,6 +112,71 @@ const foodSchema = new mongoose.Schema(
             enum: ['manual', 'specific-time', 'next-business-day', 'custom-date-time'],
             default: undefined
         },
+        // ───────────── ERP product master (vasy-style "Create New") ─────────────
+        // Every field below is optional with a null/empty default, so the documents
+        // that exist today keep validating and keep selling untouched.
+
+        /**
+         * Human-facing product code, "PRD0000081760". Generated from a counter at
+         * create time unless the admin types one. Sparse-unique so the existing
+         * catalogue, which has none, does not collide on the empty value.
+         */
+        itemCode: { type: String, trim: true, index: true, unique: true, sparse: true },
+        productType: {
+            type: String,
+            enum: ['Finished', 'Raw Material', 'Semi Finished', 'Service', 'Consumable'],
+            default: 'Finished'
+        },
+        /** Name as it appears on the bill / label when the full name is too long. */
+        printName: { type: String, trim: true, default: '' },
+        subCategoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodCategory', index: true, default: null },
+        departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDepartment', index: true, default: null },
+        /** Structured brand. `brand` (free text) stays as the display fallback until migrated. */
+        brandId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodBrand', index: true, default: null },
+        subBrandId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodBrand', default: null },
+        /** Primary unit of measurement. */
+        unitId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodUnit', default: null },
+        /** Up to two more selling units (three total, the "Max. 3 Units" rule). */
+        additionalUnitIds: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FoodUnit' }], default: [] },
+        hsnCode: { type: String, trim: true, default: '' },
+        purchaseTaxRate: { type: Number, min: 0, max: 100, default: null },
+        purchaseTaxInclusive: { type: Boolean, default: false },
+        /** Sales tax rate is the existing `gstRate`; this flag says whether `price` already includes it. */
+        salesTaxInclusive: { type: Boolean, default: false },
+        cessEnabled: { type: Boolean, default: false },
+        cessRate: { type: Number, min: 0, max: 100, default: null },
+        /** When on, stock is kept per batch (Phase 4). Stored now so the form round-trips. */
+        manageMultipleBatch: { type: Boolean, default: false },
+        shortDescription: { type: String, trim: true, default: '' },
+        nutrition: {
+            type: [{ name: { type: String, trim: true }, value: { type: String, trim: true }, unit: { type: String, trim: true } }],
+            default: []
+        },
+        netWeight: { type: Number, min: 0, default: null },
+        netWeightUnitId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodUnit', default: null },
+        additionalInfo: { type: String, trim: true, default: '' },
+
+        // Pricing tiers. `price` remains the selling price and `mrp` the MRP.
+        purchasePrice: { type: Number, min: 0, default: null },
+        landingCost: { type: Number, min: 0, default: null },
+        sellingDiscount: { type: Number, min: 0, default: null },
+        sellingMargin: { type: Number, default: null },
+        retailerDiscount: { type: Number, min: 0, default: null },
+        retailerPrice: { type: Number, min: 0, default: null },
+        retailerMargin: { type: Number, default: null },
+        wholesalerDiscount: { type: Number, min: 0, default: null },
+        wholesalerPrice: { type: Number, min: 0, default: null },
+        wholesalerMargin: { type: Number, default: null },
+        onlinePrice: { type: Number, min: 0, default: null },
+        minimumQuantity: { type: Number, min: 0, default: null },
+
+        /** The "Show Online" toggle on the product list. */
+        showOnline: { type: Boolean, default: false, index: true },
+        /** Soft delete — rows go to "Deleted Products" and can be restored. */
+        isDeleted: { type: Boolean, default: false, index: true },
+        deletedAt: { type: Date, default: null },
+        // ──────────────────────────────────────────────────────────────────────
+
         isRecommended: { type: Boolean, default: false, index: true },
         /** Seller/admin opt-in gate for recurring "Product Subscriptions" (see productSubscription.model.js) — a customer can only subscribe to an item once this is true. */
         subscriptionEnabled: { type: Boolean, default: false, index: true },
