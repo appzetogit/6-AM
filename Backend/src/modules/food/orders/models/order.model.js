@@ -21,6 +21,16 @@ const orderItemSchema = new mongoose.Schema(
         brand: { type: String, trim: true, default: '' },
         packSize: { type: String, trim: true, default: '' },
         /**
+         * Unit cost at order time, for margin reporting.
+         *
+         * Snapshotted for the same reason the price and the category are: a
+         * product's purchase price changes, and a report of what a sale earned
+         * has to use the cost that applied then, not today's. null means the
+         * cost was unknown when the order was placed — the profit contribution
+         * of such a line is reported as zero rather than guessed.
+         */
+        purchasePrice: { type: Number, min: 0, default: null },
+        /**
          * Category this line belonged to, snapshotted at order time.
          *
          * Without it, "top selling categories" had to join order lines back to
