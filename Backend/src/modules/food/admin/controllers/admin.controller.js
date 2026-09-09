@@ -573,6 +573,66 @@ export async function getFoods(req, res, next) {
     }
 }
 
+// ── vasy-style product list extras: item-code preview, deleted list, restore, purge, show-online ──
+
+export async function getFoodById(req, res, next) {
+    try {
+        const food = await adminService.getFoodById(req.params.id);
+        if (!food) return res.status(404).json({ success: false, message: 'Food not found' });
+        res.status(200).json({ success: true, message: 'Food fetched', data: { food } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getNextItemCode(req, res, next) {
+    try {
+        const itemCode = await adminService.peekNextItemCode();
+        res.status(200).json({ success: true, message: 'Next item code', data: { itemCode } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getDeletedFoods(req, res, next) {
+    try {
+        const data = await adminService.listDeletedFoods(req.query || {});
+        res.status(200).json({ success: true, message: 'Deleted products fetched', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function restoreFood(req, res, next) {
+    try {
+        const result = await adminService.restoreFood(req.params.id);
+        if (!result) return res.status(404).json({ success: false, message: 'Deleted product not found' });
+        res.status(200).json({ success: true, message: 'Product restored', data: result });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function purgeFood(req, res, next) {
+    try {
+        const result = await adminService.purgeFood(req.params.id);
+        if (!result) return res.status(404).json({ success: false, message: 'Deleted product not found' });
+        res.status(200).json({ success: true, message: 'Product permanently deleted', data: result });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function toggleFoodShowOnline(req, res, next) {
+    try {
+        const food = await adminService.toggleFoodShowOnline(req.params.id);
+        if (!food) return res.status(404).json({ success: false, message: 'Food not found' });
+        res.status(200).json({ success: true, message: 'Show online updated', data: { food } });
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function createFood(req, res, next) {
     try {
         const created = await adminService.createFood(req.body || {});
