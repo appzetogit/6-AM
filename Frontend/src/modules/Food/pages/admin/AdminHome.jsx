@@ -26,6 +26,7 @@ import {
 import { Activity, ArrowUpRight, ShoppingBag, CreditCard, Truck, Receipt, DollarSign, Store, UserCheck, Package, UserCircle, Clock, CheckCircle, Plus, XCircle } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { cn } from "@food/utils/utils"
+import DashboardAnalytics from "@food/components/admin/DashboardAnalytics"
 const debugLog = () => {}
 const debugError = () => {}
 
@@ -704,6 +705,12 @@ export default function AdminHome() {
           </div>
         </div>
       </div>
+
+      {/* Sales analytics: top customers, segments, category and product sales. */}
+      <div className="mt-4">
+        <DashboardAnalytics />
+      </div>
+
     </div>
   )
 }
