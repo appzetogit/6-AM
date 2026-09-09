@@ -36,6 +36,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # CI already runs this, but a workflow_dispatch deploy skips CI entirely —
+      # and hand-deploying a tampered commit is precisely the path someone would
+      # take once CI started refusing it. The server pulls and builds on the far
+      # side, so a bad config file would execute there, as root.
+      - name: Build-config guard
+        run: node .github/scripts/scan-build-config.mjs
+
       - name: Verify deploy secrets are present
         env:
           URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
