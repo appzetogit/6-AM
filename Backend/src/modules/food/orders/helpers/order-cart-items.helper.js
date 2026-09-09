@@ -183,6 +183,12 @@ export async function resolveOrderCartItems(restaurantId, rawItems = []) {
             : Number(foodDoc.gstRate),
         brand: String(foodDoc.brand || ''),
         packSize: String(foodDoc.packSize || ''),
+        // Cost as it stands now, so margin reporting is not rewritten by a
+        // later change to the product's purchase price.
+        purchasePrice:
+          foodDoc.purchasePrice === null || foodDoc.purchasePrice === undefined
+            ? null
+            : Number(foodDoc.purchasePrice),
         // Snapshotted so category reporting survives a rename or a delete.
         categoryId: foodDoc.categoryId || null,
         categoryName: String(foodDoc.categoryName || ''),
