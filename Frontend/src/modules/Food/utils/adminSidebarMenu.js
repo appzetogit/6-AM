@@ -61,18 +61,17 @@ export const adminSidebarMenu = [
       },
       {
         type: "expandable",
-        label: "Products",
-        icon: "Utensils",
+        label: "Items",
+        icon: "Package",
         subItems: [
-          { label: "Seller Products List", path: "/admin/store/products" },
+          { label: "Products", path: "/admin/store/products" },
+          { label: "Stocks", path: "/admin/store/stocks" },
+          { label: "Stock Verification", path: "/admin/store/stock-verification" },
+          { label: "Department", path: "/admin/store/departments" },
+          { label: "Category / Brand", path: "/admin/store/category-brand" },
+          { label: "Unit Of Measurement", path: "/admin/store/units" },
           { label: "Seller Add-ons List", path: "/admin/store/addons" },
         ],
-      },
-      {
-        type: "link",
-        label: "Categories",
-        icon: "FolderTree",
-        path: "/admin/store/categories",
       },
       {
         type: "link",
