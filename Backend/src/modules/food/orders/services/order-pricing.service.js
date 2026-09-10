@@ -367,13 +367,21 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
 
   const feeSettings = await loadActiveFeeSettings();
 
+  // A counter sale is handed over the counter: nobody drives it anywhere and
+  // no app placed it, so neither a delivery fee nor the platform fee applies.
+  // The "delivery address" is the shop's own, which would otherwise price a
+  // zero-kilometre delivery at the base fee.
+  const counterSale = options.counterSale === true;
+
   const packagingFee = 0;
-  const platformFee = Number(feeSettings.platformFee || 0);
+  const platformFee = counterSale ? 0 : Number(feeSettings.platformFee || 0);
 
-  let distanceKm = await getDeliveryDistanceKm(restaurant, deliveryAddress);
-  const straightLineKm = calculateDistanceKm(restaurant, deliveryAddress);
+  let distanceKm = counterSale ? 0 : await getDeliveryDistanceKm(restaurant, deliveryAddress);
+  const straightLineKm = counterSale ? 0 : calculateDistanceKm(restaurant, deliveryAddress);
 
-  const deliveryFeeResult = resolveUserDeliveryFee(feeSettings, { subtotal, distanceKm });
+  const deliveryFeeResult = counterSale
+    ? { deliveryFee: 0, distanceKm: 0, source: "counter", breakdown: null }
+    : resolveUserDeliveryFee(feeSettings, { subtotal, distanceKm });
   const deliveryFee = round2(deliveryFeeResult.deliveryFee);
   distanceKm = deliveryFeeResult.distanceKm ?? distanceKm;
 
@@ -464,6 +472,22 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
     }
   }
 
+  // A discount the cashier typed in, on top of whatever a coupon gave. Clamped
+  // so the two together can never exceed the goods: a bill cannot go negative
+  // and the tax base below cannot either.
+  const couponDiscount = discount;
+  const manualPercent = Math.max(0, Math.min(100, Number(dto.manualDiscountPercent) || 0));
+  const manualDiscount = round2(
+    Math.max(
+      0,
+      Math.min(
+        subtotal - couponDiscount,
+        (Number(dto.manualDiscount) || 0) + (subtotal * manualPercent) / 100,
+      ),
+    ),
+  );
+  discount = round2(couponDiscount + manualDiscount);
+
   // GST is charged on the post-discount item value (discount is already clamped to <= subtotal).
   const tax = computeItemsTax(items, {
     subtotal,
@@ -473,12 +497,20 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
 
   const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee);
 
-  const total = round2(
+  const additionalCharges = round2(Math.max(0, Number(dto.additionalCharges) || 0));
+
+  const exactTotal = round2(
     Math.max(
       0,
-      subtotal + packagingFee + deliveryFee + deliveryFeeGst + platformFee + tax - discount,
+      subtotal + packagingFee + deliveryFee + deliveryFeeGst + platformFee + tax + additionalCharges - discount,
     ),
   );
+
+  // Round-off is opt-in and signed. Rounding to the nearest rupee is what a
+  // printed bill does; recording the difference is what keeps the ledger
+  // honest about it.
+  const roundOff = dto.roundOff === true ? round2(Math.round(exactTotal) - exactTotal) : 0;
+  const total = round2(exactTotal + roundOff);
 
   const basePricing = {
     subtotal,
@@ -492,6 +524,9 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
     currency: "INR",
     couponCode: appliedCoupon?.code || codeRaw || null,
     appliedCoupon,
+    manualDiscount,
+    additionalCharges,
+    roundOff,
     distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
     roadDistanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
     straightLineDistanceKm: Number.isFinite(straightLineKm)
