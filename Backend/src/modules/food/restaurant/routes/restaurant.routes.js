@@ -81,7 +81,20 @@ import {
     unlinkDeliveryPartnerController,
     assignDeliveryPartnerController
 } from '../controllers/deliveryFleet.controller.js';
-import { createPosOrderController } from '../controllers/pos.controller.js';
+import {
+    quotePosOrderController,
+    createPosOrderController,
+    recordPosPaymentController,
+    searchPosCustomersController,
+    getPosCustomerSummaryController,
+    getLastPosBillController,
+    getPosBillController,
+    listPosOrdersController,
+    holdPosBillController,
+    listHeldBillsController,
+    takeHeldBillController,
+    discardHeldBillController
+} from '../controllers/pos.controller.js';
 import { authMiddleware, optionalAuth } from '../../../../core/auth/auth.middleware.js';
 import { sendError } from '../../../../utils/response.js';
 import { getRestaurantFinanceController } from '../controllers/restaurantFinance.controller.js';
@@ -323,7 +336,18 @@ router.post('/delivery-fleet/link', authMiddleware, requireRestaurant, linkDeliv
 router.delete('/delivery-fleet/:deliveryPartnerId', authMiddleware, requireRestaurant, unlinkDeliveryPartnerController);
 router.post('/orders/:orderId/assign-delivery', authMiddleware, requireRestaurant, assignDeliveryPartnerController);
 
-// POS (walk-in / in-store orders entered manually by the seller)
+// POS — the seller's till. Every route is scoped to the signed-in shop.
+router.post('/pos/quote', authMiddleware, requireRestaurant, quotePosOrderController);
 router.post('/pos/orders', authMiddleware, requireRestaurant, createPosOrderController);
+router.get('/pos/orders', authMiddleware, requireRestaurant, listPosOrdersController);
+router.get('/pos/orders/last', authMiddleware, requireRestaurant, getLastPosBillController);
+router.get('/pos/orders/:orderId', authMiddleware, requireRestaurant, getPosBillController);
+router.post('/pos/orders/:orderId/payments', authMiddleware, requireRestaurant, recordPosPaymentController);
+router.get('/pos/customers', authMiddleware, requireRestaurant, searchPosCustomersController);
+router.get('/pos/customers/:customerId/summary', authMiddleware, requireRestaurant, getPosCustomerSummaryController);
+router.get('/pos/holds', authMiddleware, requireRestaurant, listHeldBillsController);
+router.post('/pos/holds', authMiddleware, requireRestaurant, holdPosBillController);
+router.post('/pos/holds/:heldId/resume', authMiddleware, requireRestaurant, takeHeldBillController);
+router.delete('/pos/holds/:heldId', authMiddleware, requireRestaurant, discardHeldBillController);
 
 export default router;
