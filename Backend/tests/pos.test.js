@@ -1,0 +1,460 @@
+import { after, before, beforeEach, describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { connectTestDb, disconnectTestDb, expectError, resetDb, someId } from './helpers/db.js';
+import { FoodItem } from '../src/modules/food/admin/models/food.model.js';
+import { FoodZone } from '../src/modules/food/admin/models/zone.model.js';
+import { FoodRestaurant } from '../src/modules/food/restaurant/models/restaurant.model.js';
+import { FoodUser } from '../src/core/users/user.model.js';
+import { FoodOrder } from '../src/modules/food/orders/models/order.model.js';
+import { FoodTransaction } from '../src/modules/food/orders/models/foodTransaction.model.js';
+import { FoodPosHeldBill } from '../src/modules/food/restaurant/models/posHeldBill.model.js';
+import * as pos from '../src/modules/food/restaurant/services/pos.service.js';
+
+/**
+ * The seller's till, end to end through the real order pipeline.
+ *
+ * These run createOrder for real — stock, pricing, the transaction ledger —
+ * because the bugs worth catching are in how a counter sale differs from an
+ * app order: it must not wait for acceptance, must not be auto-cancelled at
+ * the acceptance deadline, must not price a delivery to the shop's own door,
+ * and must record the money as taken.
+ */
+
+before(connectTestDb);
+after(disconnectTestDb);
+beforeEach(resetDb);
+
+const SHOP_LNG = 77.59;
+const SHOP_LAT = 12.97;
+
+/** A zone that contains the shop, since every order is zone-checked. */
+const makeZone = () =>
+    FoodZone.create({
+        name: 'Test Zone',
+        coordinates: [
+            { latitude: 12.9, longitude: 77.5 },
+            { latitude: 12.9, longitude: 77.7 },
+            { latitude: 13.05, longitude: 77.7 },
+            { latitude: 13.05, longitude: 77.5 }
+        ]
+    });
+
+const makeShop = async (over = {}) => {
+    await makeZone();
+    return FoodRestaurant.create({
+        restaurantName: 'Corner Store',
+        ownerName: 'Owner',
+        ownerPhone: '9000000001',
+        phone: '9000000001',
+        status: 'approved',
+        addressLine1: '12 Market Road',
+        city: 'Bengaluru',
+        state: 'Karnataka',
+        location: { type: 'Point', coordinates: [SHOP_LNG, SHOP_LAT] },
+        ...over
+    });
+};
+
+const makeProduct = (restaurantId, over = {}) =>
+    FoodItem.create({ restaurantId, name: 'Milk', price: 50, stockQty: 20, gstRate: 0, ...over });
+
+const line = (product, quantity = 1, extra = {}) => ({ itemId: String(product._id), quantity, ...extra });
+
+describe('quote', () => {
+    it('prices a counter sale with no delivery or platform fee', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 40 });
+
+        const { pricing, items } = await pos.quotePosOrder(shop._id, { items: [line(milk, 3)] });
+        assert.equal(pricing.subtotal, 120);
+        assert.equal(pricing.deliveryFee, 0, 'nobody drives a walk-in sale anywhere');
+        assert.equal(pricing.deliveryFeeGst, 0);
+        assert.equal(pricing.platformFee, 0, 'the platform fee is for app orders');
+        assert.equal(pricing.total, 120);
+        assert.equal(items[0].amount, 120);
+    });
+
+    it('applies flat, percentage and line discounts, extra charges and round-off', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 33 });
+
+        const flat = await pos.quotePosOrder(shop._id, {
+            items: [line(milk, 3)], // 99
+            flatDiscount: { type: 'flat', value: 9 }
+        });
+        assert.equal(flat.pricing.manualDiscount, 9);
+        assert.equal(flat.pricing.discount, 9);
+        assert.equal(flat.pricing.total, 90);
+
+        const percent = await pos.quotePosOrder(shop._id, {
+            items: [line(milk, 3)],
+            flatDiscount: { type: 'percent', value: 10 }
+        });
+        assert.equal(percent.pricing.manualDiscount, 9.9);
+        assert.equal(percent.pricing.total, 89.1);
+
+        const lines = await pos.quotePosOrder(shop._id, {
+            items: [line(milk, 3, { discount: 4 })],
+            additionalCharges: 5.5
+        });
+        assert.equal(lines.pricing.manualDiscount, 4, 'a line discount is part of the manual discount');
+        assert.equal(lines.items[0].discount, 4);
+        assert.equal(lines.items[0].amount, 95);
+        assert.equal(lines.pricing.additionalCharges, 5.5);
+        assert.equal(lines.pricing.total, 100.5);
+
+        const rounded = await pos.quotePosOrder(shop._id, {
+            items: [line(milk, 3, { discount: 4 })],
+            additionalCharges: 5.5,
+            roundOff: true
+        });
+        assert.equal(rounded.pricing.roundOff, 0.5);
+        assert.equal(rounded.pricing.total, 101);
+    });
+
+    it('never lets a discount take a bill below zero', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 10 });
+        const { pricing } = await pos.quotePosOrder(shop._id, {
+            items: [line(milk, 1)],
+            flatDiscount: { type: 'flat', value: 500 }
+        });
+        assert.equal(pricing.manualDiscount, 10, 'clamped to the goods');
+        assert.equal(pricing.total, 0);
+    });
+
+    it('charges GST on the discounted value', async () => {
+        const shop = await makeShop();
+        const juice = await makeProduct(shop._id, { price: 100, gstRate: 10 });
+        const { pricing } = await pos.quotePosOrder(shop._id, {
+            items: [line(juice, 1)],
+            flatDiscount: { type: 'flat', value: 20 }
+        });
+        assert.equal(pricing.tax, 8, '10% of 80, not of 100');
+        assert.equal(pricing.total, 88);
+    });
+
+    it('rejects bad lines and bad types', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id);
+        await expectError(() => pos.quotePosOrder(shop._id, { items: [] }), 'At least one item', assert);
+        await expectError(() => pos.quotePosOrder(shop._id, { items: [line(milk, 0)] }), 'Quantity', assert);
+        await expectError(() => pos.quotePosOrder(shop._id, { items: [line(milk)], orderType: 'drone' }), 'orderType', assert);
+        await expectError(
+            () => pos.quotePosOrder(shop._id, { items: [line(milk)], flatDiscount: { type: 'percent', value: 120 } }),
+            'cannot exceed 100',
+            assert
+        );
+    });
+});
+
+describe('a counter sale', () => {
+    it('is closed the moment it is rung up, and the stock is gone', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 50, stockQty: 10 });
+
+        const { order, receipt } = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 2)],
+            orderType: 'take_away',
+            paymentMode: 'cash',
+            salesman: 'Testing',
+            remarks: 'no bag'
+        });
+
+        const saved = await FoodOrder.findById(order._id).lean();
+        assert.equal(saved.source, 'pos');
+        assert.equal(saved.orderStatus, 'delivered', 'the customer is holding the bag');
+        assert.ok(saved.deliveryState?.deliveredAt, 'delivered right now, on the same field the rider flow stamps');
+        assert.equal(saved.acceptanceDeadlineAt, null, 'nothing to accept, so nothing to time out');
+        assert.equal(saved.payment.method, 'cash');
+        assert.equal(saved.payment.status, 'paid', 'cash across the counter is paid, not COD');
+        assert.equal(saved.payment.amountDue, 0);
+        assert.equal(saved.pos.orderType, 'take_away');
+        assert.equal(saved.pos.salesman, 'Testing');
+        assert.equal(saved.pos.remarks, 'no bag');
+        assert.equal(saved.pos.paymentMode, 'cash');
+        assert.deepEqual(saved.pos.tenders.map((t) => [t.mode, t.amount]), [['cash', 100]]);
+        assert.equal(saved.pos.dueAmount, 0);
+        assert.equal(saved.pos.billNo, saved.order_id);
+        assert.equal(saved.pricing.deliveryFee, 0);
+        assert.equal(saved.pricing.total, 100);
+
+        assert.equal(receipt.billNo, saved.order_id);
+        assert.equal(receipt.orderTypeLabel, 'Take Away');
+        assert.equal(receipt.store.name, 'Corner Store');
+        assert.equal(receipt.customer.name, 'Walk in Customer');
+        assert.equal(receipt.customer.phone, '', 'the synthetic walk-in has no real number');
+
+        const stock = await FoodItem.findById(milk._id).lean();
+        assert.equal(stock.stockQty, 8);
+
+        const txn = await FoodTransaction.findOne({ orderId: saved._id }).lean();
+        assert.ok(txn, 'the ledger has the sale');
+        assert.equal(txn.status, 'captured');
+        assert.equal(txn.paymentMethod, 'cash');
+    });
+
+    it('records a card or UPI tender as paid without touching the gateway', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 50 });
+
+        const { order } = await pos.createPosOrder(shop._id, { items: [line(milk)], paymentMode: 'upi' });
+        const saved = await FoodOrder.findById(order._id).lean();
+        assert.equal(saved.payment.method, 'upi');
+        assert.equal(saved.payment.status, 'paid');
+        assert.equal(saved.payment.razorpay?.orderId ?? '', '', 'no gateway order was created');
+        assert.equal(saved.orderStatus, 'delivered');
+
+        const card = await pos.createPosOrder(shop._id, { items: [line(milk)], paymentMode: 'card' });
+        const cardSaved = await FoodOrder.findById(card.order._id).lean();
+        assert.equal(cardSaved.payment.method, 'card', "'card' at the till is a card machine, not razorpay");
+        assert.equal(cardSaved.payment.status, 'paid');
+    });
+
+    it('on the Pay screen, a short payment leaves a due and an overpayment gives change', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 50 });
+
+        // Short, and nobody to owe it: refused.
+        await expectError(
+            () => pos.createPosOrder(shop._id, {
+                items: [line(milk, 2)],
+                paymentMode: 'multiple',
+                tenders: [{ mode: 'cash', amount: 60 }, { mode: 'upi', amount: 30 }]
+            }),
+            'named customer',
+            assert
+        );
+        assert.equal(await FoodOrder.countDocuments({}), 0, 'a refused bill must not move stock');
+
+        // Short, with a customer: the rest is a due.
+        const shortPay = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 2)], customerPhone: '9811112222',
+            paymentMode: 'multiple',
+            tenders: [{ mode: 'cash', amount: 60 }, { mode: 'upi', amount: 30 }]
+        });
+        const shortSaved = await FoodOrder.findById(shortPay.order._id).lean();
+        assert.equal(shortSaved.pos.dueAmount, 10);
+        assert.equal(shortSaved.payment.status, 'cod_pending');
+        assert.equal(shortSaved.payment.amountDue, 10);
+        assert.equal(shortSaved.pos.tenders.length, 2, 'what came in is still recorded');
+
+        // Over, in cash: change.
+        const over = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 1)], paymentMode: 'multiple', tenders: [{ mode: 'cash', amount: 100 }]
+        });
+        const overSaved = await FoodOrder.findById(over.order._id).lean();
+        assert.equal(overSaved.pos.changeGiven, 50);
+        assert.equal(overSaved.pos.dueAmount, 0);
+        assert.equal(overSaved.payment.status, 'paid');
+
+        // Over, by card: there is no cash to hand back.
+        await expectError(
+            () => pos.createPosOrder(shop._id, { items: [line(milk, 1)], paymentMode: 'multiple', tenders: [{ mode: 'card', amount: 100 }] }),
+            'change cannot be given',
+            assert
+        );
+
+        const { order } = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 2)],
+            paymentMode: 'multiple',
+            tenders: [{ mode: 'cash', amount: 30 }, { mode: 'upi', amount: 70 }]
+        });
+        const saved = await FoodOrder.findById(order._id).lean();
+        assert.equal(saved.pos.paymentMode, 'multiple');
+        assert.equal(saved.payment.method, 'upi', 'the snapshot names the larger tender');
+        assert.equal(saved.payment.status, 'paid');
+        assert.equal(saved.pos.tenders.length, 2);
+    });
+
+    it('still works for the admin panel, which sends paymentMethod', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id);
+        const { order } = await pos.createPosOrder(shop._id, {
+            customerName: 'Asha', customerPhone: '9876543210', items: [line(milk)], paymentMethod: 'cash'
+        });
+        const saved = await FoodOrder.findById(order._id).lean();
+        assert.equal(saved.source, 'pos');
+        assert.equal(saved.customerPhone, '9876543210');
+        assert.equal(saved.orderStatus, 'delivered');
+    });
+
+    it('books a nameless walk-in against one synthetic customer per shop', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id);
+        await pos.createPosOrder(shop._id, { items: [line(milk)] });
+        await pos.createPosOrder(shop._id, { items: [line(milk)] });
+
+        const walkIns = await FoodUser.find({ phone: /^pos-walkin-/ }).lean();
+        assert.equal(walkIns.length, 1, 'one per shop, reused');
+        assert.equal(await FoodOrder.countDocuments({ userId: walkIns[0]._id }), 2);
+    });
+});
+
+describe('pay later', () => {
+    it('needs a named customer, opens a due, and closes when it is paid off', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 100 });
+
+        await expectError(
+            () => pos.createPosOrder(shop._id, { items: [line(milk)], paymentMode: 'pay_later' }),
+            'named customer',
+            assert
+        );
+
+        const { order } = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 2)],
+            paymentMode: 'pay_later',
+            customerName: 'Ravi',
+            customerPhone: '9800000000'
+        });
+        let saved = await FoodOrder.findById(order._id).lean();
+        assert.equal(saved.orderStatus, 'delivered', 'they still walked out with it');
+        assert.equal(saved.payment.status, 'cod_pending', 'nothing was taken');
+        assert.equal(saved.payment.amountDue, 200);
+        assert.equal(saved.pos.dueAmount, 200);
+        assert.deepEqual(saved.pos.tenders, []);
+
+        await expectError(() => pos.recordPosPayment(shop._id, order._id, { mode: 'cash', amount: 250 }), 'Only ₹200.00', assert);
+        await expectError(() => pos.recordPosPayment(shop._id, order._id, { mode: 'cheque', amount: 10 }), 'mode must be', assert);
+
+        const part = await pos.recordPosPayment(shop._id, order._id, { mode: 'cash', amount: 50 });
+        assert.equal(part.dueAmount, 150);
+        assert.equal(part.settled, false);
+        saved = await FoodOrder.findById(order._id).lean();
+        assert.equal(saved.payment.status, 'cod_pending', 'part paid is still owed');
+
+        const rest = await pos.recordPosPayment(shop._id, order._id, { mode: 'upi', amount: 150 });
+        assert.equal(rest.dueAmount, 0);
+        assert.equal(rest.settled, true);
+        saved = await FoodOrder.findById(order._id).lean();
+        assert.equal(saved.payment.status, 'paid');
+        assert.equal(saved.payment.amountDue, 0);
+        assert.equal(saved.payment.method, 'upi', 'the larger tender');
+        assert.equal(saved.pos.paymentMode, 'multiple');
+
+        const txn = await FoodTransaction.findOne({ orderId: saved._id }).lean();
+        assert.equal(txn.status, 'captured', 'the ledger caught up');
+
+        await expectError(() => pos.recordPosPayment(shop._id, order._id, { mode: 'cash', amount: 1 }), 'Nothing is due', assert);
+    });
+
+    it('cannot be paid against another shop', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 100 });
+        const { order } = await pos.createPosOrder(shop._id, {
+            items: [line(milk)], paymentMode: 'pay_later', customerPhone: '9800000000'
+        });
+        await expectError(() => pos.recordPosPayment(someId(), order._id, { mode: 'cash', amount: 100 }), 'Bill not found', assert);
+    });
+});
+
+describe('customers', () => {
+    it('finds a phone anywhere but a name only among this shop\'s customers', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id);
+        await FoodUser.create({ phone: '9811111111', name: 'Priya Stranger' });
+        await pos.createPosOrder(shop._id, { items: [line(milk)], customerName: 'Priya Regular', customerPhone: '9822222222' });
+        await pos.createPosOrder(shop._id, { items: [line(milk)] }); // synthetic walk-in
+
+        const byPhone = await pos.searchPosCustomers(shop._id, '9811');
+        assert.deepEqual(byPhone.map((c) => c.name), ['Priya Stranger'], 'a new walk-in has never ordered here');
+
+        const byName = await pos.searchPosCustomers(shop._id, 'priya');
+        assert.deepEqual(byName.map((c) => c.name), ['Priya Regular'], 'names are scoped to the shop');
+
+        const walk = await pos.searchPosCustomers(shop._id, 'walk');
+        assert.deepEqual(walk, [], 'the synthetic walk-in is not a customer anyone can pick');
+
+        assert.deepEqual(await pos.searchPosCustomers(shop._id, ''), []);
+    });
+
+    it('summarises history with this shop only', async () => {
+        const shop = await makeShop();
+        const other = await makeShop({ restaurantName: 'Other Shop', ownerPhone: '9000000002', phone: '9000000002' });
+        const milk = await makeProduct(shop._id, { name: 'Milk', price: 50 });
+        const bread = await makeProduct(shop._id, { name: 'Bread', price: 30 });
+        const otherItem = await makeProduct(other._id, { name: 'Elsewhere', price: 999 });
+
+        await pos.createPosOrder(shop._id, { items: [line(milk, 1), line(bread, 3)], customerPhone: '9833333333', paymentMode: 'upi' });
+        const { order: last } = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 1)], customerPhone: '9833333333', paymentMode: 'pay_later'
+        });
+        await pos.createPosOrder(other._id, { items: [line(otherItem, 5)], customerPhone: '9833333333' });
+
+        const customer = await FoodUser.findOne({ phone: '9833333333' }).lean();
+        const summary = await pos.getPosCustomerSummary(shop._id, customer._id);
+
+        assert.equal(summary.totalPurchases, 2, 'the other shop\'s sale is not counted');
+        assert.equal(summary.lastBillAmount, 50);
+        assert.equal(String(new Date(summary.lastVisitedAt).getTime()), String(new Date(last.createdAt).getTime()));
+        assert.equal(summary.mostPurchasedItem, 'Bread');
+        assert.equal(summary.lastPaymentMode, 'pay_later');
+        assert.equal(summary.duePayment, 50);
+        assert.equal(summary.totalSpent, 190);
+        assert.equal(summary.loyaltyPoints, null, 'no loyalty programme exists');
+    });
+});
+
+describe('bills', () => {
+    it('reports the last bill and today\'s counter sales', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 50 });
+        assert.equal(await pos.getLastPosBill(shop._id), null, 'nothing rung up yet');
+
+        await pos.createPosOrder(shop._id, { items: [line(milk, 1)] });
+        const { order: second } = await pos.createPosOrder(shop._id, { items: [line(milk, 3)], paymentMode: 'pay_later', customerPhone: '9844444444' });
+
+        const last = await pos.getLastPosBill(shop._id);
+        assert.equal(last.billNo, second.order_id);
+        assert.equal(last.pricing.total, 150);
+
+        const today = await pos.listPosOrders(shop._id, {});
+        assert.equal(today.items.length, 2);
+        assert.equal(today.total, 200);
+        assert.equal(today.due, 150);
+
+        const dues = await pos.listPosOrders(shop._id, { due: 'true' });
+        assert.equal(dues.items.length, 1);
+
+        const stale = await pos.listPosOrders(shop._id, { date: '2020-01-01' });
+        assert.equal(stale.items.length, 0);
+
+        const bill = await pos.getPosBill(shop._id, second._id);
+        assert.equal(bill.billNo, second.order_id);
+        const scanned = await pos.getPosBill(shop._id, second.order_id.toLowerCase());
+        assert.equal(scanned.id, String(second._id), 'the printed bill number finds it too');
+        await expectError(() => pos.getPosBill(shop._id, 'NOPE-1'), 'Bill not found', assert);
+        await expectError(() => pos.getPosBill(someId(), second._id), 'Bill not found', assert);
+    });
+});
+
+describe('held bills', () => {
+    it('parks a cart without touching stock, and resuming removes the hold', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 50, stockQty: 5 });
+
+        const held = await pos.holdPosBill(shop._id, {
+            items: [{ itemId: String(milk._id), name: 'Milk', price: 50, quantity: 2 }],
+            orderType: 'dine_in',
+            tableNo: 'T4',
+            customerName: 'Asha',
+            estimatedTotal: 100
+        });
+        assert.equal((await FoodItem.findById(milk._id).lean()).stockQty, 5, 'a hold is not a sale');
+        assert.equal(held.tableNo, 'T4');
+
+        const list = await pos.listHeldBills(shop._id);
+        assert.equal(list.length, 1);
+        assert.equal(list[0].estimatedTotal, 100);
+        assert.deepEqual(await pos.listHeldBills(someId()), [], 'another shop sees nothing');
+
+        const resumed = await pos.takeHeldBill(shop._id, held._id);
+        assert.equal(resumed.items[0].quantity, 2);
+        assert.equal(await FoodPosHeldBill.countDocuments({}), 0, 'either parked or on screen, never both');
+        await expectError(() => pos.takeHeldBill(shop._id, held._id), 'Held bill not found', assert);
+
+        await expectError(() => pos.holdPosBill(shop._id, { items: [] }), 'nothing on the bill', assert);
+    });
+});
