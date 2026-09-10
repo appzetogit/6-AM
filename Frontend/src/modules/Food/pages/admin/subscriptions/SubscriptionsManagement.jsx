@@ -7,6 +7,7 @@ import {
   Clock,
   Loader2,
   Package,
+  Plus,
   RefreshCw,
   Search,
   Users,
@@ -16,6 +17,7 @@ import { toast } from "sonner"
 
 import { adminAPI } from "@food/api"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog"
+import AddSubscriptionDialog from "@food/components/admin/AddSubscriptionDialog"
 
 /**
  * Admin view over customer product subscriptions.
@@ -25,8 +27,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/componen
  *    This is the morning view, so it is the one that opens first.
  *  - Subscriptions: the standing arrangements behind those deliveries.
  *
- * Read-only by design — a subscription is the customer's arrangement, and
- * nothing here edits it.
+ * The one write is starting a subscription for a customer who phoned instead
+ * of using the app. Editing an existing one stays with the customer: it is
+ * their arrangement, and they can pause or cancel it themselves.
  */
 
 const TABS = [
@@ -141,6 +144,9 @@ export default function SubscriptionsManagement() {
   const [detail, setDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
 
+  // ─── New subscription ───
+  const [addOpen, setAddOpen] = useState(false)
+
   const pageSize = 20
   const isToday = date === toDateInput(new Date())
 
@@ -239,6 +245,15 @@ export default function SubscriptionsManagement() {
             <p className="text-sm text-neutral-500">Recurring customer deliveries</p>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setAddOpen(true)}
+          className="inline-flex h-10 items-center gap-2 rounded-lg bg-pink-500 px-4 text-sm font-medium text-white hover:bg-pink-600"
+        >
+          <Plus className="h-4 w-4" />
+          New subscription
+        </button>
       </div>
 
       <div className="flex gap-1 border-b border-neutral-200">
@@ -481,6 +496,19 @@ export default function SubscriptionsManagement() {
           </div>
         </div>
       )}
+
+      <AddSubscriptionDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        onCreated={() => {
+          // The new arrangement is on the Subscriptions tab, and its first
+          // deliveries are already generated — so switch there and reload both.
+          setTab("subscriptions")
+          setSubsPage(1)
+          fetchSubscriptions()
+          fetchDeliveries()
+        }}
+      />
 
       <Dialog open={Boolean(detail)} onOpenChange={(open) => !open && setDetail(null)}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
