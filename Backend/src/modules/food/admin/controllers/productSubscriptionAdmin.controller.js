@@ -21,6 +21,16 @@ export async function getSubscriptionDetailController(req, res, next) {
     }
 }
 
+/** POST /food/admin/product-subscriptions — start one on a customer's behalf */
+export async function createSubscriptionController(req, res, next) {
+    try {
+        const data = await service.createSubscriptionForCustomer(req.body || {});
+        return sendResponse(res, 201, 'Subscription created', data);
+    } catch (err) {
+        next(err);
+    }
+}
+
 /** GET /food/admin/subscription-deliveries — one day's board, defaults to today */
 export async function listDeliveriesController(req, res, next) {
     try {
