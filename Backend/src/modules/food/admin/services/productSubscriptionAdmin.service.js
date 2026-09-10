@@ -6,21 +6,27 @@ import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodItem } from '../models/food.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
+import { createSubscription } from '../../user/services/productSubscription.service.js';
+import { validateCreateSubscriptionDto } from '../../user/validators/productSubscription.validator.js';
 import { NotFoundError, ValidationError } from '../../../../core/auth/errors.js';
 
 /**
- * Read-only admin views over customer product subscriptions.
+ * Admin views over customer product subscriptions, plus the one write.
  *
- * Two things are on offer here, because they answer different questions:
+ * Three things are on offer here, because they answer different questions:
  *
  *  - listDeliveries() is the morning operational view — what is due today, what
  *    became an order, and what failed. Occurrences are the unit, not
  *    subscriptions, because a day's work is a list of deliveries.
  *  - listSubscriptions() is the standing-arrangement view — who is subscribed to
  *    what, how often, and is it still active.
+ *  - createSubscriptionForCustomer() sets one up on a customer's behalf, for the
+ *    customer who phones the shop instead of using the app.
  *
- * Nothing in this file writes. Subscriptions are the customer's arrangement, and
- * the panel's job for now is to show it.
+ * That write deliberately delegates to the customer-facing service rather than
+ * repeating its logic: the subscribable check, the address lookup and the
+ * occurrence generation are the same rules whoever starts the subscription, and
+ * a second copy of them would drift from the app's within a release.
  */
 
 const MAX_LIMIT = 200;
@@ -283,6 +289,35 @@ export async function listDeliveries(query = {}) {
     });
 
     return { deliveries, total, page, limit, date: day };
+}
+
+/**
+ * Starts a subscription on a customer's behalf.
+ *
+ * The customer who rings the shop to say "one litre every morning" gets the
+ * same arrangement as one who taps it into the app: the same validator, the
+ * same createSubscription, and therefore the same refusal if the product is
+ * not subscribable or the address is not theirs. The only thing this adds is
+ * the customerId — which the app takes from a token and an admin must state —
+ * and the check that it names a real customer, since nothing upstream has
+ * proved it the way a token would.
+ */
+export async function createSubscriptionForCustomer(body = {}) {
+    const userId = toObjectId(body.customerId, 'customerId');
+
+    const customer = await FoodUser.findById(userId).select('_id role isActive').lean();
+    if (!customer) throw new NotFoundError('Customer not found');
+    if (customer.isActive === false) {
+        throw new ValidationError('This customer account is deactivated — reactivate it before starting a subscription');
+    }
+
+    const dto = validateCreateSubscriptionDto(body);
+    const { subscription } = await createSubscription(userId, dto);
+
+    // Returned in the same shape the list uses, so the row the admin just
+    // created renders identically to the ones already on screen.
+    const maps = await buildNameMaps([subscription]);
+    return { subscription: serializeSubscription(subscription, maps) };
 }
 
 /**
