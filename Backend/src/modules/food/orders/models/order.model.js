@@ -31,6 +31,13 @@ const orderItemSchema = new mongoose.Schema(
          */
         purchasePrice: { type: Number, min: 0, default: null },
         /**
+         * Line-level discount in rupees, entered at the POS counter. Zero for
+         * app orders, which only ever discount through a coupon on the whole
+         * bill. Kept per line so a receipt can print what each line was
+         * knocked down by, and so the totals strip can add them back up.
+         */
+        discount: { type: Number, min: 0, default: 0 },
+        /**
          * Category this line belonged to, snapshotted at order time.
          *
          * Without it, "top selling categories" had to join order lines back to
@@ -107,6 +114,21 @@ const pricingSchema = new mongoose.Schema(
         restaurantCommission: { type: Number, default: 0, min: 0 },
         discount: { type: Number, default: 0, min: 0 },
         couponCode: { type: String, default: null, trim: true, uppercase: true },
+        /**
+         * The part of `discount` the counter staff entered by hand (flat
+         * amount, percentage, or per-line), as opposed to what a coupon gave.
+         * `discount` already includes it; this is the split, so reports can
+         * tell a coupon campaign apart from a cashier's goodwill.
+         */
+        manualDiscount: { type: Number, default: 0, min: 0 },
+        /** Extra charges typed in at the counter (a service charge, a bag). */
+        additionalCharges: { type: Number, default: 0, min: 0 },
+        /**
+         * Paise dropped or added to land the bill on a whole rupee. Signed:
+         * -0.40 means the customer paid 40p less than the arithmetic total.
+         * Already folded into `total`.
+         */
+        roundOff: { type: Number, default: 0 },
         total: { type: Number, required: true, min: 0 },
         currency: { type: String, default: 'INR' },
         /** Straight-line restaurant ↔ customer km (fee calculation) */
@@ -120,9 +142,12 @@ const pricingSchema = new mongoose.Schema(
 
 const paymentSchema = new mongoose.Schema(
     {
+        // 'upi' and 'card' are counter tenders: money the seller took in person
+        // at the POS and recorded after the fact. They never involve the
+        // gateway — an app customer paying by card goes through 'razorpay'.
         method: {
             type: String,
-            enum: ['cash', 'razorpay', 'razorpay_qr', 'wallet'],
+            enum: ['cash', 'razorpay', 'razorpay_qr', 'wallet', 'upi', 'card'],
             required: true
         },
         status: {
@@ -163,6 +188,50 @@ const paymentSchema = new mongoose.Schema(
             refundId: { type: String, default: '' },
             processedAt: { type: Date }
         }
+    },
+    { _id: false }
+);
+
+/**
+ * What the counter knew that the app never asks: how the customer is taking
+ * the food, which table, who rang it up, and how the money actually arrived.
+ *
+ * `tenders` is the split when a bill is paid by more than one method; for a
+ * plain cash sale it is a single entry. `dueAmount` is what is still owed on
+ * a pay-later bill and drops as payments are added against it.
+ */
+const posTenderSchema = new mongoose.Schema(
+    {
+        mode: { type: String, enum: ['cash', 'upi', 'card'], required: true },
+        amount: { type: Number, required: true, min: 0 },
+        at: { type: Date, default: Date.now },
+        note: { type: String, trim: true, default: '' }
+    },
+    { _id: false }
+);
+
+const posSchema = new mongoose.Schema(
+    {
+        orderType: {
+            type: String,
+            enum: ['dine_in', 'take_away', 'walk_in', 'delivery'],
+            default: 'walk_in'
+        },
+        tableNo: { type: String, trim: true, default: '' },
+        salesman: { type: String, trim: true, default: '' },
+        remarks: { type: String, trim: true, default: '' },
+        /** 'pay_later' means nothing was taken at the counter. */
+        paymentMode: {
+            type: String,
+            enum: ['cash', 'upi', 'card', 'multiple', 'pay_later'],
+            default: 'cash'
+        },
+        tenders: { type: [posTenderSchema], default: [] },
+        dueAmount: { type: Number, min: 0, default: 0 },
+        /** Cash handed back when more was received than the bill; tenders record what came in. */
+        changeGiven: { type: Number, min: 0, default: 0 },
+        /** Bill number as printed. Same as order_id; here so it survives renumbering. */
+        billNo: { type: String, trim: true, default: '' }
     },
     { _id: false }
 );
@@ -325,14 +394,20 @@ const orderSchema = new mongoose.Schema(
             type: paymentSchema,
             required: false
         },
-        // Where this order originated. 'pos' = seller entered it manually in the
-        // admin panel for a walk-in customer; everything else about the order
-        // (pricing, stock, transaction ledger) flows through the exact same path.
+        // Where this order originated. 'pos' = rung up at the seller's counter
+        // (or by an admin on the seller's behalf); everything else about the
+        // order (pricing, stock, transaction ledger) flows through the exact
+        // same path.
         source: {
             type: String,
             enum: ['app', 'pos'],
             default: 'app',
             index: true
+        },
+        /** Counter details. Present only when source is 'pos'. */
+        pos: {
+            type: posSchema,
+            default: undefined
         },
         orderStatus: {
             type: String,
