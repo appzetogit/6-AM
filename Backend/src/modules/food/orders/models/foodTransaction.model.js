@@ -9,10 +9,11 @@ const foodTransactionSchema = new mongoose.Schema({
     deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner', index: true },
 
     // Core Payment Info
-    paymentMethod: { 
-        type: String, 
-        enum: ['cash', 'razorpay', 'razorpay_qr', 'wallet'], 
-        required: true 
+    paymentMethod: {
+        type: String,
+        // 'upi' / 'card' are counter tenders recorded at the seller's POS.
+        enum: ['cash', 'razorpay', 'razorpay_qr', 'wallet', 'upi', 'card'],
+        required: true
     },
     status: { 
         type: String, 
