@@ -2,7 +2,13 @@ import express from 'express';
 import { AuthError } from '../../../../core/auth/errors.js';
 import * as adminController from '../controllers/admin.controller.js';
 import * as surveyController from '../controllers/survey.controller.js';
-import { createAdminPosOrderController } from '../controllers/pos.controller.js';
+import {
+    createAdminPosOrderController,
+    holdAdminPosBillController,
+    listAdminHeldBillsController,
+    resumeAdminHeldBillController,
+    discardAdminHeldBillController,
+} from '../controllers/pos.controller.js';
 import * as foodApprovalController from '../controllers/foodApproval.controller.js';
 import * as addonsApprovalController from '../controllers/addonsApproval.controller.js';
 import * as businessSettingsController from '../controllers/businessSettings.controller.js';
@@ -169,6 +175,7 @@ router.get(
     adminController.getCustomers
 );
 router.get('/customers/:id', adminController.getCustomerById);
+router.get('/customers/:id/addresses', adminController.getCustomerAddresses);
 router.patch('/customers/:id/status', adminController.updateCustomerStatus);
 
 // ----- Safety / Emergency Reports -----
@@ -373,15 +380,22 @@ router.post('/offers', adminController.createAdminOffer);
 router.post('/offers/monthly/run', adminController.runMonthlyOfferSweep);
 router.post('/product-subscriptions/run', adminController.runProductSubscriptionSweep);
 
-// ----- Product subscriptions (customer daily/weekly deliveries) — read-only -----
+// ----- Product subscriptions (customer daily/weekly deliveries) -----
 // /subscription-deliveries is the day's operational board; /product-subscriptions
-// is the list of standing arrangements behind it.
+// is the list of standing arrangements behind it. The POST starts one for a
+// customer who phoned instead of using the app; the generic permission
+// middleware above reads it as order_management:create.
 router.get('/subscription-deliveries/summary', productSubscriptionAdmin.getDeliverySummaryController);
 router.get('/subscription-deliveries', productSubscriptionAdmin.listDeliveriesController);
 router.get('/product-subscriptions', productSubscriptionAdmin.listSubscriptionsController);
+router.post('/product-subscriptions', productSubscriptionAdmin.createSubscriptionController);
 router.get('/product-subscriptions/:id', productSubscriptionAdmin.getSubscriptionDetailController);
 router.get('/reports/wallet-dashboard', adminController.getWalletDashboardController);
 router.post('/pos/orders', createAdminPosOrderController);
+router.get('/pos/holds', listAdminHeldBillsController);
+router.post('/pos/holds', holdAdminPosBillController);
+router.post('/pos/holds/:heldId/resume', resumeAdminHeldBillController);
+router.delete('/pos/holds/:heldId', discardAdminHeldBillController);
 
 router.get('/surveys', surveyController.listSurveysController);
 router.post('/surveys', surveyController.createSurveyController);
