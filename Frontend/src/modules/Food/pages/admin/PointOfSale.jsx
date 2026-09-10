@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
-import { Search, TrendingUp, ShoppingCart, XCircle, Star, Calendar, BarChart3, Users, Package, Clock, CreditCard, ChevronDown, Check, Store, Plus, Minus, Trash2, Receipt, Loader2 } from 'lucide-react'
+import { Search, TrendingUp, ShoppingCart, XCircle, Star, Calendar, BarChart3, Users, Package, Clock, CreditCard, ChevronDown, Check, Store, Plus, Minus, Trash2, Receipt, Loader2, PauseCircle, Play, X } from 'lucide-react'
 import { adminAPI } from '@food/api'
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -59,6 +59,10 @@ export default function PointOfSale() {
   const [customerPhone, setCustomerPhone] = useState('')
   const [posPaymentMethod, setPosPaymentMethod] = useState('cash')
   const [placingOrder, setPlacingOrder] = useState(false)
+  const [heldBills, setHeldBills] = useState([])
+  const [holdsOpen, setHoldsOpen] = useState(false)
+  const [holdsLoading, setHoldsLoading] = useState(false)
+  const [holdingBill, setHoldingBill] = useState(false)
 
   const getRestaurantName = (restaurant) => {
     return String(
@@ -210,6 +214,100 @@ export default function PointOfSale() {
     setCustomerName('')
     setCustomerPhone('')
     setPosPaymentMethod('cash')
+  }
+
+  const loadHeldBills = async (restaurantId = selectedRestaurant) => {
+    if (!restaurantId) {
+      setHeldBills([])
+      return
+    }
+    setHoldsLoading(true)
+    try {
+      const response = await adminAPI.listAdminPosHolds(restaurantId)
+      const rows = response?.data?.data
+      setHeldBills(Array.isArray(rows) ? rows : [])
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Could not load held bills')
+      setHeldBills([])
+    } finally {
+      setHoldsLoading(false)
+    }
+  }
+
+  const openHeldBills = async () => {
+    if (!selectedRestaurant) {
+      toast.error('Select a restaurant first')
+      return
+    }
+    setHoldsOpen(true)
+    await loadHeldBills()
+  }
+
+  const handleHoldBill = async () => {
+    if (!selectedRestaurant) {
+      toast.error('Select a restaurant first')
+      return
+    }
+    if (!orderItems.length) {
+      toast.error('Add at least one item before holding the bill')
+      return
+    }
+
+    setHoldingBill(true)
+    try {
+      await adminAPI.holdAdminPosBill({
+        restaurantId: selectedRestaurant,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        orderType: 'walk_in',
+        items: orderItems.map((line) => ({
+          itemId: line.itemId,
+          name: line.name,
+          price: Number(line.price) || 0,
+          quantity: Number(line.quantity) || 1,
+        })),
+        estimatedTotal: orderItemsTotal,
+      })
+      toast.success('Bill moved to On Hold')
+      resetPosForm()
+      if (holdsOpen) loadHeldBills()
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Could not hold the bill')
+    } finally {
+      setHoldingBill(false)
+    }
+  }
+
+  const resumeHeldBill = async (heldId) => {
+    try {
+      const response = await adminAPI.resumeAdminPosHold(heldId, selectedRestaurant)
+      const held = response?.data?.data
+      if (!held) throw new Error('Held bill was not returned')
+      setOrderItems((held.items || []).map((item) => ({
+        itemId: String(item.itemId || ''),
+        name: item.name || 'Item',
+        price: Number(item.price) || 0,
+        quantity: Math.max(1, Number(item.quantity) || 1),
+      })).filter((item) => item.itemId))
+      setCustomerName(held.customer?.name || '')
+      setCustomerPhone(held.customer?.phone || '')
+      setPosPaymentMethod('cash')
+      setHoldsOpen(false)
+      toast.success('Held bill resumed')
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Could not resume this bill')
+      loadHeldBills()
+    }
+  }
+
+  const discardHeldBill = async (heldId) => {
+    try {
+      await adminAPI.discardAdminPosHold(heldId, selectedRestaurant)
+      setHeldBills((current) => current.filter((bill) => bill.id !== heldId && bill._id !== heldId))
+      toast.success('Held bill discarded')
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Could not discard this bill')
+    }
   }
 
   const handlePlaceWalkInOrder = async () => {
@@ -488,6 +586,8 @@ export default function PointOfSale() {
   // Handle restaurant selection from search
   const handleRestaurantSelect = (restaurantId) => {
     setSelectedRestaurant(restaurantId)
+    setHoldsOpen(false)
+    setHeldBills([])
     const selected = restaurants.find(r => r._id === restaurantId)
     if (selected) {
       setSearchQuery(selected.name)
@@ -737,11 +837,21 @@ export default function PointOfSale() {
 
             {/* Walk-in Order (POS) */}
             <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-              <div className="flex items-center gap-3 mb-1">
-                <div className="p-2 bg-emerald-100 rounded-lg">
-                  <Receipt className="w-5 h-5 text-emerald-600" />
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-100 rounded-lg">
+                    <Receipt className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-[#334257]">Create Walk-in Order</h3>
                 </div>
-                <h3 className="text-lg font-semibold text-[#334257]">Create Walk-in Order</h3>
+                <button
+                  type="button"
+                  onClick={openHeldBills}
+                  className="h-9 shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-3 text-sm font-semibold text-amber-800 hover:bg-amber-100 flex items-center gap-2"
+                >
+                  <PauseCircle className="w-4 h-4" />
+                  On Hold
+                </button>
               </div>
               <p className="text-xs text-[#8a94aa] mb-4">
                 For a customer placing an order in person at this store. An account is created automatically by phone number if none exists.
@@ -853,6 +963,15 @@ export default function PointOfSale() {
                       <option value="cash">Cash</option>
                       <option value="razorpay">Card / UPI</option>
                     </select>
+                    <button
+                      type="button"
+                      onClick={handleHoldBill}
+                      disabled={holdingBill || placingOrder}
+                      className="h-10 rounded-lg border border-amber-400 bg-amber-50 px-3 text-sm font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60 flex items-center justify-center gap-2"
+                    >
+                      {holdingBill && <Loader2 className="w-4 h-4 animate-spin" />}
+                      {holdingBill ? 'Holding…' : 'Hold'}
+                    </button>
                     <button
                       type="button"
                       onClick={handlePlaceWalkInOrder}
@@ -1308,6 +1427,62 @@ export default function PointOfSale() {
             </p>
           </div>
         )}
+
+      {holdsOpen && (
+        <div className="fixed inset-0 z-[100] flex justify-end bg-slate-900/35" role="dialog" aria-modal="true" aria-label="On hold bills">
+          <div className="flex h-full w-full max-w-md flex-col bg-slate-50 shadow-2xl">
+            <div className="flex items-center justify-between bg-[#334257] px-5 py-4 text-white">
+              <div>
+                <h2 className="text-lg font-bold">On Hold</h2>
+                <p className="text-xs text-slate-200 truncate max-w-72">{getSelectedRestaurantName()}</p>
+              </div>
+              <button type="button" onClick={() => setHoldsOpen(false)} className="rounded p-1 hover:bg-white/15" aria-label="Close held bills">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="border-b border-slate-200 bg-white px-4 py-3">
+              <button type="button" onClick={() => loadHeldBills()} disabled={holdsLoading} className="text-sm font-semibold text-[#006fbd] hover:underline disabled:opacity-50">
+                {holdsLoading ? 'Refreshing…' : 'Refresh held bills'}
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {holdsLoading ? (
+                <div className="py-12 text-center text-sm text-slate-500"><Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />Loading held bills…</div>
+              ) : heldBills.length === 0 ? (
+                <div className="py-16 text-center text-sm text-slate-500">No bills on hold for this restaurant.</div>
+              ) : (
+                <div className="space-y-3">
+                  {heldBills.map((bill) => {
+                    const billId = String(bill.id || bill._id || '')
+                    const itemCount = (bill.items || []).reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
+                    return (
+                      <article key={billId} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-bold text-slate-800">Hold #{billId.slice(-6).toUpperCase()}</p>
+                            <p className="mt-1 text-xs text-slate-500">{bill.createdAt ? new Date(bill.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''}</p>
+                          </div>
+                          <p className="text-base font-bold text-[#006fbd]">{formatCurrency(Number(bill.estimatedTotal) || 0)}</p>
+                        </div>
+                        <p className="mt-3 text-sm text-slate-700">Customer: <span className="font-medium">{bill.customer?.name || 'Walk in Customer'}</span>{bill.customer?.phone ? ` · ${bill.customer.phone}` : ''}</p>
+                        <p className="mt-1 text-sm text-slate-600">{itemCount} item{itemCount === 1 ? '' : 's'} · {(bill.orderType || 'walk_in').replace('_', ' ')}</p>
+                        <div className="mt-4 flex gap-2">
+                          <button type="button" onClick={() => resumeHeldBill(billId)} className="flex-1 h-9 rounded-lg bg-[#006fbd] text-sm font-semibold text-white hover:bg-[#005a9c] flex items-center justify-center gap-1.5">
+                            <Play className="w-4 h-4" /> Resume
+                          </button>
+                          <button type="button" onClick={() => discardHeldBill(billId)} className="h-9 rounded-lg border border-red-200 px-3 text-red-600 hover:bg-red-50" aria-label={`Discard hold ${billId}`}>
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   )
