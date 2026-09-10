@@ -104,6 +104,15 @@ function isAwaitingOnlinePaymentMethod(paymentMethod) {
   return method === "razorpay" || method === "card";
 }
 
+/** The rupee discount the till entered against one line of the cart, if any. */
+function posLineDiscount(rawItems, itemId) {
+  if (!Array.isArray(rawItems)) return 0;
+  const wanted = String(itemId || "");
+  const line = rawItems.find((entry) => String(entry?.itemId || entry?.id || "") === wanted);
+  const value = Number(line?.discount);
+  return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : 0;
+}
+
 async function incrementCouponUsageForOrder(order, userId) {
   const couponCode = order?.pricing?.couponCode
     ? String(order.pricing.couponCode).trim().toUpperCase()
@@ -472,7 +481,11 @@ export async function createOrder(userId, dto) {
     if (dto.scheduledAt && Number.isNaN(orderAt.getTime())) {
       throw new ValidationError('Invalid scheduled time');
     }
-    assertRestaurantOpenForOrdering(restaurant, orderAt);
+    // Outlet hours gate the app. Someone ringing up a sale at the till is, by
+    // definition, open.
+    if (!(dto.pos && typeof dto.pos === "object")) {
+      assertRestaurantOpenForOrdering(restaurant, orderAt);
+    }
 
     const settings = await getDispatchSettings();
     const dispatchMode = settings.dispatchMode;
@@ -504,18 +517,41 @@ export async function createOrder(userId, dto) {
 
     const serviceableZone = await resolveServiceableZone(restaurant, deliveryAddress);
 
-    const paymentMethod =
-      dto.paymentMethod === "card" ? "razorpay" : dto.paymentMethod;
+    // Rung up at the seller's till. A counter sale (anything but a POS
+    // delivery) is over the moment it is saved: the customer is standing
+    // there with the bag, so there is no acceptance window, no rider, and the
+    // tender named is money already in the drawer — 'card' here is a card
+    // machine on the counter, not the gateway.
+    const pos = dto.pos && typeof dto.pos === "object" ? dto.pos : null;
+    const counterSale = Boolean(pos) && pos.orderType !== "delivery";
+
+    const paymentMethod = counterSale
+      ? dto.paymentMethod
+      : dto.paymentMethod === "card"
+        ? "razorpay"
+        : dto.paymentMethod;
     // COD was hard-disabled here. It is back on by default and kept behind a switch
     // so it can be turned off again without a deploy — everything downstream already
     // supports it (payment.status 'cod_pending' is the schema default, the restaurant
     // order-list filter and canExposeOrderToRestaurant both include 'cash', and rider
     // cash collection, deposits and cashInHand are all live).
-    if (paymentMethod === "cash" && String(process.env.COD_ENABLED || "true") !== "true") {
+    //
+    // Cash across a counter is not cash on delivery, so the switch does not
+    // reach it.
+    if (!counterSale && paymentMethod === "cash" && String(process.env.COD_ENABLED || "true") !== "true") {
       throw new ValidationError("Cash on Delivery is no longer available. Please pay online.");
     }
     const isCash = paymentMethod === "cash";
     const isWallet = paymentMethod === "wallet";
+    // Money taken at the till is paid, whatever the tender. Two POS cases are
+    // not: "pay later", where nothing was taken and the bill stays open
+    // against the customer, and a POS delivery on cash, where the rider will
+    // collect at the door exactly as for an app order. Both sit in
+    // 'cod_pending', which is what every receivable report already reads.
+    const posDue = pos ? Math.max(0, Number(pos.dueAmount) || 0) : 0;
+    const posPaid =
+      Boolean(pos) && pos.paymentMode !== "pay_later" && posDue <= 0 && (counterSale || !isCash);
+    const counterPaid = counterSale && posPaid;
 
     const pricingResult = await calculateOrderPricing(
       userId,
@@ -525,8 +561,11 @@ export async function createOrder(userId, dto) {
         deliveryAddress,
         couponCode: dto.pricing?.couponCode || undefined,
         deliveryMode: dto.deliveryMode || "basic",
+        manualDiscount: pos ? Number(dto.pricing?.manualDiscount) || 0 : 0,
+        additionalCharges: pos ? Number(dto.pricing?.additionalCharges) || 0 : 0,
+        roundOff: Boolean(pos) && dto.pricing?.roundOff === true,
       },
-      { at: orderAt, restaurant, skipAvailabilityCheck: true },
+      { at: orderAt, restaurant, skipAvailabilityCheck: true, counterSale },
     );
 
     const resolvedItems = pricingResult.items || [];
@@ -546,6 +585,9 @@ export async function createOrder(userId, dto) {
       couponCode: pricingResult.pricing?.couponCode
         ? String(pricingResult.pricing.couponCode).trim().toUpperCase()
         : null,
+      manualDiscount: Number(pricingResult.pricing?.manualDiscount) || 0,
+      additionalCharges: Number(pricingResult.pricing?.additionalCharges) || 0,
+      roundOff: Number(pricingResult.pricing?.roundOff) || 0,
       total: Number(pricingResult.pricing?.total) || 0,
       currency: String(pricingResult.pricing?.currency || "INR"),
       // Same road distance source as cart preview / delivery Rest→User.
@@ -570,8 +612,10 @@ export async function createOrder(userId, dto) {
 
     const payment = {
       method: paymentMethod,
-      status: isCash ? "cod_pending" : isWallet ? "paid" : "created",
-      amountDue: normalizedPricing.total || 0,
+      status: pos
+        ? (posPaid ? "paid" : "cod_pending")
+        : isCash ? "cod_pending" : isWallet ? "paid" : "created",
+      amountDue: posPaid ? 0 : pos && posDue > 0 ? posDue : normalizedPricing.total || 0,
       razorpay: {},
       qr: {},
     };
@@ -616,17 +660,25 @@ export async function createOrder(userId, dto) {
       restaurantCommission -
       riderEarning;
 
-    const isAwaitingOnlinePayment = isAwaitingOnlinePaymentMethod(paymentMethod);
+    const isAwaitingOnlinePayment = !counterSale && isAwaitingOnlinePaymentMethod(paymentMethod);
     // A trusted seller's order is confirmed on arrival: no window, no timeout
     // job, and the rider hunt starts now rather than after somebody taps a
     // tablet. Orders still awaiting payment are never auto-confirmed -- money
     // first, always.
-    const autoAccept = restaurant?.autoAcceptOrders === true && !isAwaitingOnlinePayment;
-    const initialStatus = isAwaitingOnlinePayment
-      ? "pending_payment"
-      : autoAccept
-        ? "confirmed"
-        : "created";
+    //
+    // A POS delivery is the seller's own order — they typed it in — so asking
+    // them to accept it would be asking them to agree with themselves.
+    const autoAccept =
+      !counterSale &&
+      !isAwaitingOnlinePayment &&
+      (restaurant?.autoAcceptOrders === true || Boolean(pos));
+    const initialStatus = counterSale
+      ? "delivered"
+      : isAwaitingOnlinePayment
+        ? "pending_payment"
+        : autoAccept
+          ? "confirmed"
+          : "created";
     const acceptanceWindowSeconds = await getOrderAcceptanceWindowSeconds();
 
     const order = new FoodOrder({
@@ -641,11 +693,19 @@ export async function createOrder(userId, dto) {
           : toObjectId(restaurant.zoneId, 'Restaurant Zone ID'),
       items: resolvedItems.map(item => ({
         ...item,
-        itemId: toObjectId(item.itemId, 'Item ID')
+        itemId: toObjectId(item.itemId, 'Item ID'),
+        // The per-line discount the cashier entered, snapshotted on the line
+        // so the receipt can show it. The money side is already inside
+        // pricing.manualDiscount; this is the itemisation only.
+        discount: pos ? posLineDiscount(dto.items, item.itemId) : 0,
       })),
       deliveryAddress,
       customerName: String(dto.customerName || deliveryAddress.fullName || ""),
-      customerPhone: String(dto.customerPhone || deliveryAddress.phone || ""),
+      // A counter sale's "delivery address" is the shop's own, so its phone
+      // is the shop's — a nameless walk-in must not inherit it as theirs.
+      customerPhone: pos
+        ? String(dto.customerPhone || "")
+        : String(dto.customerPhone || deliveryAddress.phone || ""),
       pricing: normalizedPricing,
       payment,
       orderStatus: initialStatus,
@@ -659,12 +719,39 @@ export async function createOrder(userId, dto) {
       statusHistory: [
         {
           at: new Date(),
-          byRole: "SYSTEM",
+          byRole: pos ? "RESTAURANT" : "SYSTEM",
           from: "",
           to: initialStatus,
-          note: initialStatus === "pending_payment" ? "Order created, awaiting payment" : "Order placed",
+          note: counterSale
+            ? "Counter sale, handed over at the till"
+            : initialStatus === "pending_payment"
+              ? "Order created, awaiting payment"
+              : "Order placed",
         },
       ],
+      ...(pos
+        ? {
+            source: "pos",
+            pos: {
+              orderType: pos.orderType || "walk_in",
+              tableNo: String(pos.tableNo || ""),
+              salesman: String(pos.salesman || ""),
+              remarks: String(pos.remarks || ""),
+              paymentMode: pos.paymentMode || "cash",
+              tenders: Array.isArray(pos.tenders) ? pos.tenders : [],
+              // Only a pay-later bill carries a due here: a cash delivery's
+              // outstanding amount is the rider's to collect and lives in
+              // payment.amountDue like any other COD order.
+              dueAmount: pos.paymentMode === "pay_later" ? normalizedPricing.total : posDue,
+              changeGiven: Math.max(0, Number(pos.changeGiven) || 0),
+              billNo: "",
+            },
+            // Handed over at the till: the same stamp the rider flow writes
+            // when a delivery completes, so "delivered when" reads the same
+            // for every order regardless of how it got to the customer.
+            ...(counterSale ? { deliveryState: { deliveredAt: new Date() } } : {}),
+          }
+        : {}),
       note: String(dto.note || ""),
       deliveryInstructions: String(dto.deliveryInstructions || ""),
       sendCutlery: dto.sendCutlery !== false,
@@ -716,7 +803,7 @@ export async function createOrder(userId, dto) {
     }
 
     // An auto-confirmed order has nobody to wait for, so no timeout is armed.
-    if (!isAwaitingOnlinePayment && !autoAccept) {
+    if (!isAwaitingOnlinePayment && !autoAccept && !counterSale) {
       void addOrderJob(
         {
           action: "ORDER_ACCEPTANCE_TIMEOUT_CHECK",
@@ -774,7 +861,9 @@ export async function createOrder(userId, dto) {
       // payment screen, and an abandoned order is already handled by
       // abandonOnlinePaymentOrder. A push adds nothing a screen they are
       // looking at does not already say.
-      if (!isAwaitingOnlinePayment) {
+      // A customer at the till has the bag in hand; a push saying "confirmed"
+      // would only puzzle them.
+      if (!isAwaitingOnlinePayment && !counterSale) {
         await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
           title: "Order Confirmed! 🍔",
           body: `Your order #${order.order_id || order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
@@ -788,7 +877,10 @@ export async function createOrder(userId, dto) {
         });
       }
 
-      if (!isAwaitingOnlinePayment) {
+      // The seller typed a POS order in themselves; a "new order" alert on
+      // their own screen for it is noise, and the accept card it opens has
+      // nothing to accept.
+      if (!isAwaitingOnlinePayment && !pos) {
         await notifyRestaurantNewOrder(order);
       }
     } catch (err) {
