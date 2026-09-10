@@ -63,6 +63,7 @@ const Signup = lazy(() => import("@food/pages/restaurant/auth/Signup"))
 const ForgotPassword = lazy(() => import("@food/pages/restaurant/auth/ForgotPassword"))
 const VerificationPending = lazy(() => import("@food/pages/restaurant/auth/VerificationPending"))
 const Subscription = lazy(() => import("@food/pages/restaurant/Subscription"))
+const PointOfSale = lazy(() => import("@food/pages/restaurant/pos/PointOfSale"))
 
 export default function RestaurantRouter() {
   // Safely enforce light mode for the Restaurant app to prevent User dark mode bleeding
@@ -107,6 +108,9 @@ export default function RestaurantRouter() {
         <Route path="onboarding" element={<AuthRedirect module="restaurant"><RestaurantOnboarding /></AuthRedirect>} />
 
         {/* Protected app shell (desktop sidebar + mobile chrome) */}
+        {/* The till takes the whole screen — the sidebar would steal a fifth of a counter monitor. */}
+        <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/seller/login"><PointOfSale /></ProtectedRoute>} path="pos" />
+
         <Route element={<LayoutWrapper />}>
           <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/seller/login"><OrdersMain /></ProtectedRoute>} path="" />
           <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/seller/login"><Dashboard /></ProtectedRoute>} path="dashboard" />
