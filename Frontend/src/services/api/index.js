@@ -782,7 +782,7 @@ export const adminAPI = {
   deleteDepartment: (id) =>
     apiClient.delete(`/food/admin/departments/${id}`, { contextModule: "admin" }),
 
-  // ─── Product subscriptions (customer daily/weekly deliveries) — read-only ───
+  // ─── Product subscriptions (customer daily/weekly deliveries) ───
   /** One day's delivery board. `date` is YYYY-MM-DD; omit for today. */
   getSubscriptionDeliveries: (params = {}) =>
     apiClient.get("/food/admin/subscription-deliveries", { params, contextModule: "admin" }),
@@ -792,11 +792,25 @@ export const adminAPI = {
     apiClient.get("/food/admin/product-subscriptions", { params, contextModule: "admin" }),
   getProductSubscription: (id) =>
     apiClient.get(`/food/admin/product-subscriptions/${id}`, { contextModule: "admin" }),
+  /** Starts a subscription for a customer who phoned instead of using the app. */
+  createProductSubscription: (body = {}) =>
+    apiClient.post("/food/admin/product-subscriptions", body, { contextModule: "admin" }),
+  /** The saved addresses a subscription can be delivered to. */
+  getCustomerAddresses: (customerId) =>
+    apiClient.get(`/food/admin/customers/${String(customerId)}/addresses`, { contextModule: "admin" }),
   /** POS (admin) — ring up a walk-in order on behalf of a restaurant */
   createAdminPosOrder: (body) =>
     apiClient.post("/food/admin/pos/orders", body ?? {}, {
       contextModule: "admin",
     }),
+  listAdminPosHolds: (restaurantId) =>
+    apiClient.get("/food/admin/pos/holds", { params: { restaurantId }, contextModule: "admin" }),
+  holdAdminPosBill: (body) =>
+    apiClient.post("/food/admin/pos/holds", body ?? {}, { contextModule: "admin" }),
+  resumeAdminPosHold: (heldId, restaurantId) =>
+    apiClient.post(`/food/admin/pos/holds/${heldId}/resume`, { restaurantId }, { contextModule: "admin" }),
+  discardAdminPosHold: (heldId, restaurantId) =>
+    apiClient.delete(`/food/admin/pos/holds/${heldId}`, { params: { restaurantId }, contextModule: "admin" }),
   createFood: (body) =>
     apiClient.post("/food/admin/foods", body ?? {}, { contextModule: "admin" }),
   updateFood: (id, body) =>
@@ -1882,6 +1896,31 @@ export const restaurantAPI = {
     apiClient.post(`/food/restaurant/orders/${String(orderId)}/resend-notification`, {}, {
       contextModule: "restaurant",
     }),
+  /** POS — the seller's till. Every call is scoped server-side to the signed-in shop. */
+  posQuote: (body = {}) =>
+    apiClient.post("/food/restaurant/pos/quote", body, { contextModule: "restaurant" }),
+  posCreateOrder: (body = {}) =>
+    apiClient.post("/food/restaurant/pos/orders", body, { contextModule: "restaurant" }),
+  posListOrders: (params = {}) =>
+    apiClient.get("/food/restaurant/pos/orders", { params, contextModule: "restaurant" }),
+  posLastBill: () =>
+    apiClient.get("/food/restaurant/pos/orders/last", { contextModule: "restaurant" }),
+  posGetBill: (orderId) =>
+    apiClient.get(`/food/restaurant/pos/orders/${String(orderId)}`, { contextModule: "restaurant" }),
+  posRecordPayment: (orderId, body = {}) =>
+    apiClient.post(`/food/restaurant/pos/orders/${String(orderId)}/payments`, body, { contextModule: "restaurant" }),
+  posSearchCustomers: (q, limit = 10) =>
+    apiClient.get("/food/restaurant/pos/customers", { params: { q, limit }, contextModule: "restaurant" }),
+  posCustomerSummary: (customerId) =>
+    apiClient.get(`/food/restaurant/pos/customers/${String(customerId)}/summary`, { contextModule: "restaurant" }),
+  posListHolds: () =>
+    apiClient.get("/food/restaurant/pos/holds", { contextModule: "restaurant" }),
+  posHold: (body = {}) =>
+    apiClient.post("/food/restaurant/pos/holds", body, { contextModule: "restaurant" }),
+  posResumeHold: (heldId) =>
+    apiClient.post(`/food/restaurant/pos/holds/${String(heldId)}/resume`, {}, { contextModule: "restaurant" }),
+  posDiscardHold: (heldId) =>
+    apiClient.delete(`/food/restaurant/pos/holds/${String(heldId)}`, { contextModule: "restaurant" }),
   /** List restaurant complaints (for current restaurant dashboard) */
   getComplaints: (params = {}) =>
     apiClient.get("/food/restaurant/complaints", {
