@@ -19,6 +19,11 @@ Errors:
 { "success": false, "message": "startDate cannot be in the past", "error": "…" }
 ```
 
+> **Also read [`ADMIN_SUBSCRIPTION_FLOW.md`](ADMIN_SUBSCRIPTION_FLOW.md).** An admin can
+> now start a subscription for a customer who phones the shop, so a subscription can
+> appear in the customer's list that the app never created. The endpoints below do not
+> change — but an app that builds its list from local state will miss those.
+
 ---
 
 ## 1. How it works
