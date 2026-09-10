@@ -1678,6 +1678,44 @@ export async function getCustomerById(id) {
     };
 }
 
+/**
+ * A customer's saved addresses.
+ *
+ * A subscription is delivered to one of the customer's own saved addresses —
+ * `addressId` on the subscription points into this array — so an admin
+ * creating one on the customer's behalf has to pick from exactly this list.
+ * Nothing else here needs it, which is why it is its own call rather than
+ * more weight on the customer detail response.
+ */
+export async function getCustomerAddresses(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const user = await FoodUser.findById(id).select('name phone addresses').lean();
+    if (!user) return null;
+
+    const addresses = (Array.isArray(user.addresses) ? user.addresses : []).map((a) => ({
+        id: String(a._id),
+        label: a.label || 'Other',
+        // One printable line, in the order someone reads an address out loud.
+        line: [a.flatNumber, a.blockNumber, a.colonyName, a.street, a.additionalDetails, a.city, a.state, a.zipCode]
+            .map((part) => String(part || '').trim())
+            .filter(Boolean)
+            .join(', '),
+        city: a.city || '',
+        zipCode: a.zipCode || '',
+        phone: a.phone || '',
+        isDefault: a.isDefault === true,
+        // Without coordinates an order cannot be written at all (the 2dsphere
+        // index rejects it), so the form has to be able to grey these out
+        // rather than let the admin build a subscription that fails at 6am.
+        hasLocation: Array.isArray(a.location?.coordinates) && a.location.coordinates.length === 2
+    }));
+
+    return {
+        customer: { id: String(user._id), name: user.name || 'Unnamed', phone: user.phone || '' },
+        addresses
+    };
+}
+
 export async function updateCustomerStatus(id, isActive) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const updatedDoc = await FoodUser.findByIdAndUpdate(
@@ -3820,6 +3858,11 @@ export async function getFoods(query) {
     if (query.status === 'inactive') filter.isAvailable = false;
     if (query.showOnline === 'true') filter.showOnline = true;
     if (query.showOnline === 'false') filter.showOnline = { $ne: true };
+    // Only products the seller marked as subscribable. The subscription form
+    // needs this: offering a product that createSubscription will then refuse
+    // shows the admin a choice that was never real.
+    if (query.subscriptionEnabled === 'true') filter.subscriptionEnabled = true;
+    if (query.subscriptionEnabled === 'false') filter.subscriptionEnabled = { $ne: true };
     if (query.search && String(query.search).trim()) {
         const term = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         filter.$or = [
