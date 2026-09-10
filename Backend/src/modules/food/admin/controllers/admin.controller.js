@@ -42,6 +42,21 @@ export async function getCustomerById(req, res, next) {
     }
 }
 
+/** GET /food/admin/customers/:id/addresses — the list a subscription is delivered to. */
+export async function getCustomerAddresses(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid customer id' });
+        }
+        const data = await adminService.getCustomerAddresses(id);
+        if (!data) return res.status(404).json({ success: false, message: 'Customer not found' });
+        res.status(200).json({ success: true, message: 'Addresses fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function updateCustomerStatus(req, res, next) {
     try {
         const { id } = req.params;
