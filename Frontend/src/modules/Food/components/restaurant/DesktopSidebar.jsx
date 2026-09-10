@@ -12,6 +12,7 @@ import {
   Compass,
   CreditCard,
   LayoutDashboard,
+  Monitor,
   ChevronDown,
   Gift,
   Palette,
@@ -40,6 +41,7 @@ const sections = [
     title: "OVERVIEW",
     items: [
       { name: "Dashboard", path: `${BASE}/dashboard`, icon: LayoutDashboard, exact: true },
+      { name: "POS", path: `${BASE}/pos`, icon: Monitor, exact: true },
       {
         name: "Orders",
         icon: FileText,
