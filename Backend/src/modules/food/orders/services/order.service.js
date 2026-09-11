@@ -39,6 +39,7 @@ import {
   getDeliveryDistanceKm,
   loadActiveFeeSettings,
   loadRestaurantForOrdering,
+  assertRestaurantAcceptingOrders,
   assertRestaurantOpenForOrdering,
 } from './order-pricing.service.js';
 import { normalizeDeliveryAddress } from '../../shared/geo.utils.js';
@@ -525,8 +526,15 @@ export async function createOrder(userId, dto) {
     // the 7am round exists precisely because the counter is shut at 7am, so
     // measuring a booked window against opening hours would make every early
     // slot unorderable. Counter hours still govern ordering for right now.
-    if (!(dto.pos && typeof dto.pos === "object") && !booking) {
-      assertRestaurantOpenForOrdering(restaurant, orderAt);
+    if (!(dto.pos && typeof dto.pos === "object")) {
+      if (booking) {
+        // Only the clock is set aside for a booked window. A shop that has
+        // paused orders or been switched off is not taking bookings for later
+        // either — closed for the day has to stop a 7am booking too.
+        assertRestaurantAcceptingOrders(restaurant);
+      } else {
+        assertRestaurantOpenForOrdering(restaurant, orderAt);
+      }
     }
 
     const settings = await getDispatchSettings();
