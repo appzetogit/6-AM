@@ -4,7 +4,12 @@ import * as slots from '../services/deliverySlot.service.js';
 /** GET /food/admin/delivery-slots — the admin list, retired ones included. */
 export async function listSlotsController(req, res, next) {
     try {
-        const data = await slots.listSlots({ includeInactive: String(req.query.includeInactive) !== 'false' });
+        const data = await slots.listSlots({
+            includeInactive: String(req.query.includeInactive) !== 'false',
+            // The screen that publishes windows is the one that needs telling
+            // when no shop keeps hours covering one.
+            withCoverage: String(req.query.withCoverage) === 'true'
+        });
         return sendResponse(res, 200, 'Delivery slots', data);
     } catch (err) {
         next(err);
