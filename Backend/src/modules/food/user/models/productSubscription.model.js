@@ -15,8 +15,23 @@ const productSubscriptionSchema = new mongoose.Schema(
         daysOfWeek: { type: [Number], default: [] },
         // Only used when frequency === 'monthly'. 1-28 to stay valid every month.
         dayOfMonth: { type: Number, min: 1, max: 28, default: null },
-        // Customer-selected time of day for delivery, "HH:mm" (24h).
+        // Customer-selected time of day for delivery, "HH:mm" (24h). When a slot
+        // was picked this is its start time, so everything downstream — the
+        // occurrence rows, the delivery board, the customer's screen — keeps
+        // reading one field whether or not slots are in use.
         deliveryTime: { type: String, required: true },
+
+        /**
+         * The window the customer chose, when they chose one rather than typing
+         * a time. Snapshotted so a renamed or retired slot still reads as what
+         * they signed up for.
+         */
+        deliverySlot: {
+            slotId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliverySlot', default: null },
+            label: { type: String, trim: true, default: '' },
+            startTime: { type: String, trim: true, default: '' },
+            endTime: { type: String, trim: true, default: '' }
+        },
         // First scheduled delivery date.
         startDate: { type: Date, required: true },
 
