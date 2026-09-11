@@ -10,6 +10,7 @@ import { FoodRestaurantOutletTimings } from '../src/modules/food/restaurant/mode
 import { assertRestaurantAcceptingOrders } from '../src/modules/food/orders/services/order-pricing.service.js';
 import {
     activateScheduledOrder,
+    cancelOrder,
     expireUnacceptedOrders
 } from '../src/modules/food/orders/services/order.service.js';
 import * as slots from '../src/modules/food/admin/services/deliverySlot.service.js';
@@ -168,6 +169,78 @@ describe('a booking is not something to act on yet', () => {
     it('does not hunt a rider for an order that is gone', async () => {
         const result = await activateScheduledOrder(someId());
         assert.deepEqual(result, { activated: false, reason: 'gone' });
+    });
+});
+
+describe('changing your mind about a booking', () => {
+    /**
+     * Cancelling stops at "created" because a confirmed order is already being
+     * cooked. A booking is not: nothing is picked, and no rider looks for it
+     * until half an hour before the window. On a shop that auto-accepts, a
+     * booking is confirmed the moment it is placed — so the customer could
+     * book tomorrow's 7am round and never get out of it.
+     */
+    const customer = someId();
+
+    // Enough of an order to survive being saved again on the way out; the
+    // cancel path rewrites the document, so a stub would fail validation
+    // rather than the rule under test.
+    const placedBooking = (over = {}) =>
+        FoodOrder.collection.insertOne({
+            _id: someId(),
+            userId: customer,
+            restaurantId: someId(),
+            orderStatus: 'confirmed',
+            scheduledAt: new Date(`${dayString(1)}T07:00:00`),
+            items: [{ itemId: someId(), name: 'Milk 1L', price: 69, quantity: 1 }],
+            pricing: { subtotal: 249, total: 261 },
+            payment: { method: 'cash', status: 'cod_pending' },
+            deliveryAddress: {
+                street: 'MG Road',
+                city: 'Bengaluru',
+                state: 'Karnataka',
+                zipCode: '560001',
+                location: { type: 'Point', coordinates: [77.59, 12.97] }
+            },
+            dispatch: { status: 'unassigned' },
+            ...over
+        });
+
+    it('lets the customer out of a booking nobody has started on', async () => {
+        const { insertedId } = await placedBooking();
+        await cancelOrder(String(insertedId), String(customer), 'changed my mind');
+
+        const after = await FoodOrder.collection.findOne({ _id: insertedId });
+        assert.equal(after.orderStatus, 'cancelled_by_user');
+    });
+
+    it('holds the line once a rider is on it', async () => {
+        const { insertedId } = await placedBooking({ dispatch: { status: 'assigned' } });
+        await expectError(
+            () => cancelOrder(String(insertedId), String(customer), 'too late'),
+            'cannot be cancelled',
+            assert
+        );
+    });
+
+    it('holds the line once the window has opened', async () => {
+        const { insertedId } = await placedBooking({
+            scheduledAt: new Date(`${dayString(-1)}T07:00:00`)
+        });
+        await expectError(
+            () => cancelOrder(String(insertedId), String(customer), 'too late'),
+            'cannot be cancelled',
+            assert
+        );
+    });
+
+    it('still refuses a confirmed instant order, which is already being cooked', async () => {
+        const { insertedId } = await placedBooking({ scheduledAt: null });
+        await expectError(
+            () => cancelOrder(String(insertedId), String(customer), 'changed my mind'),
+            'cannot be cancelled',
+            assert
+        );
     });
 });
 
