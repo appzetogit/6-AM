@@ -57,14 +57,26 @@ const matchesOrderSearch = (order, searchQuery) => {
   );
 };
 
-// Top filter tabs
+/**
+ * Top filter tabs, in the admin panel's vocabulary so one order means the same
+ * word wherever it is looked at.
+ *
+ * "Abandoned" is the one admin tab missing, and deliberately: an abandoned
+ * order never got past payment, and listOrdersRestaurant only returns orders
+ * that were paid for or are collect-on-delivery. A seller is not shown
+ * checkouts nobody completed, so the tab could only ever be empty.
+ *
+ * "Ready" is kept, which admin does not have: food waiting for a rider is a
+ * state the counter acts on, and folding it into Processing would hide it.
+ */
 const filterTabs = [
-  { id: "new", label: "New Orders" },
   { id: "all", label: "All" },
-  { id: "preparing", label: "Preparing" },
+  { id: "scheduled", label: "Scheduled" },
+  { id: "new", label: "New Requests" },
+  { id: "preparing", label: "Processing" },
   { id: "ready", label: "Ready" },
-  { id: "out-for-delivery", label: "Out for delivery" },
-  { id: "completed", label: "Completed" },
+  { id: "out-for-delivery", label: "On The Way" },
+  { id: "completed", label: "Delivered" },
   { id: "cancelled", label: "Cancelled" },
 ];
 
@@ -166,6 +178,138 @@ const getSharedOrdersResponse = async (maxAgeMs = 1500) => {
 };
 
 // Completed Orders List Component
+/**
+ * Orders the customer asked for later.
+ *
+ * Soonest first, unlike every other tab here — a scheduled list is a queue of
+ * what to prepare next, not a history of what happened.
+ */
+function ScheduledOrders({ onSelectOrder, refreshToken = 0, searchQuery = "" }) {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchOrders = async () => {
+      try {
+        const response = await getSharedOrdersResponse();
+        if (!isMounted) return;
+
+        const all = response.data?.success ? response.data.data?.orders || [] : [];
+        const now = Date.now();
+        const scheduled = all.filter((order) => {
+          const at = order.scheduledAt ? new Date(order.scheduledAt).getTime() : NaN;
+          if (!Number.isFinite(at) || at <= now) return false;
+          // A scheduled order that has already been cancelled is history, not
+          // something still to cook.
+          const status = String(order.status || order.orderStatus || "").toLowerCase();
+          return !status.startsWith("cancelled") && status !== "delivered";
+        });
+
+        const transformed = scheduled.map((order) => ({
+          orderId: order.orderId || order._id,
+          mongoId: order._id,
+          status: order.status || order.orderStatus || "scheduled",
+          customerName: order.userId?.name || order.customerName || "Customer",
+          type: "Home Delivery",
+          tableOrToken: null,
+          scheduledAt: order.scheduledAt,
+          timePlaced: new Date(order.createdAt).toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          itemsSummary:
+            order.items?.map((item) => `${item.quantity}x ${item.name}`).join(", ") || "No items",
+          photoUrl: order.items?.[0]?.image || null,
+          photoAlt: order.items?.[0]?.name || "Order",
+          note: getRestaurantCookingNote(order),
+          amount: order.pricing?.total || order.total || 0,
+          paymentMethod: order.paymentMethod || order.payment?.method || null,
+        }));
+
+        transformed.sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+
+        if (isMounted) {
+          setOrders(transformed);
+          setLoading(false);
+        }
+      } catch (error) {
+        if (!isMounted) return;
+        if (error.code !== "ERR_NETWORK" && error.response?.status !== 404) {
+          debugError("Error fetching scheduled orders:", error);
+        }
+        setOrders([]);
+        setLoading(false);
+      }
+    };
+
+    fetchOrders();
+    return () => {
+      isMounted = false;
+    };
+  }, [refreshToken]);
+
+  const visible = orders.filter((o) => matchesOrderSearch(o, searchQuery));
+
+  if (loading) {
+    return (
+      <div className="pt-4 pb-6">
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-base font-semibold text-black">Scheduled orders</h2>
+          <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+        </div>
+        <div className="text-center py-8 text-gray-500 text-sm">Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-4 pb-6">
+      <div className="flex items-baseline justify-between mb-3">
+        <h2 className="text-base font-semibold text-black">Scheduled orders</h2>
+        <span className="text-xs text-gray-500">{visible.length} upcoming</span>
+      </div>
+      {visible.length === 0 ? (
+        <div className="text-center py-8 text-gray-500 text-sm">
+          Nothing scheduled ahead
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {visible.map((order) => (
+            <button
+              key={order.mongoId || order.orderId}
+              type="button"
+              onClick={() => onSelectOrder?.(order)}
+              className="w-full rounded-xl border border-gray-100 bg-white p-3 text-left transition hover:border-gray-200 hover:bg-gray-50"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-gray-900">
+                    #{order.orderId} · {order.customerName}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-gray-500">{order.itemsSummary}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-semibold text-gray-900">₹{order.amount}</p>
+                  <p className="mt-0.5 text-xs font-medium text-amber-700">
+                    {new Date(order.scheduledAt).toLocaleString("en-IN", {
+                      day: "numeric",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CompletedOrders({ onSelectOrder, refreshToken = 0, searchQuery = "" }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -251,7 +395,7 @@ function CompletedOrders({ onSelectOrder, refreshToken = 0, searchQuery = "" }) 
       <div className="pt-4 pb-6">
         <div className="flex items-baseline justify-between mb-3">
           <h2 className="text-base font-semibold text-black">
-            Completed orders
+            Delivered orders
           </h2>
           <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
         </div>
@@ -263,7 +407,7 @@ function CompletedOrders({ onSelectOrder, refreshToken = 0, searchQuery = "" }) 
   return (
     <div className="pt-4 pb-6">
       <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-base font-semibold text-black">Completed orders</h2>
+        <h2 className="text-base font-semibold text-black">Delivered orders</h2>
         <span className="text-xs text-gray-500">{orders.filter((o) => matchesOrderSearch(o, searchQuery)).length} total</span>
       </div>
       {orders.filter((o) => matchesOrderSearch(o, searchQuery)).length === 0 ? (
@@ -1824,7 +1968,7 @@ export default function OrdersMain() {
         return (
           <div className="pt-4 pb-6">
             <div className="flex items-baseline justify-between mb-3">
-              <h2 className="text-base font-semibold text-black">New orders</h2>
+              <h2 className="text-base font-semibold text-black">New requests</h2>
               <span className="text-xs text-gray-500">
                 {pendingNewOrders.length} pending
               </span>
@@ -1855,6 +1999,14 @@ export default function OrdersMain() {
               </AnimatePresence>
             )}
           </div>
+        );
+      case "scheduled":
+        return (
+          <ScheduledOrders
+            onSelectOrder={handleSelectOrder}
+            refreshToken={ordersRefreshToken}
+            searchQuery={searchQuery}
+          />
         );
       case "all":
         return (
@@ -1998,26 +2150,15 @@ export default function OrdersMain() {
                     setTimeout(() => setIsTransitioning(false), 300);
                   }
                 }}
-                className={`shrink-0 px-4 py-2 md:px-5 md:py-2.5 rounded-xl md:rounded-full font-semibold md:font-medium text-[13px] whitespace-nowrap relative transition-all duration-300 ${isActive ? "text-white md:text-white" : "text-gray-500 hover:text-gray-900 bg-gray-50 md:bg-white md:border md:border-gray-100/50 md:hover:bg-gray-50"
+                // The admin Orders page's pills, so the same tab reads the same
+                // on both panels: solid brand pink when chosen, slate when not.
+                // The sliding background it used to carry is gone with them —
+                // a tinted panel behind pale text was hard to read at a glance.
+                className={`relative shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-semibold transition-colors ${isActive
+                    ? "bg-[#FA0272] text-white"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                   }`}
-                style={isActive ? { color: "var(--module-theme-color, #2563EB)" } : undefined}
                 whileTap={{ scale: 0.96 }}>
-                {isActive && (
-                  <motion.div
-                    layoutId="activeFilterBackground"
-                    className="absolute inset-0 rounded-xl md:rounded-full -z-10"
-                    style={{
-                      backgroundColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.16)",
-                      boxShadow: "0 2px 8px rgba(var(--module-theme-rgb, 37,99,235), 0.10)",
-                    }}
-                    initial={false}
-                    transition={{
-                      type: "spring",
-                      stiffness: 400,
-                      damping: 30,
-                    }}
-                  />
-                )}
                 <span className="relative z-10">
                   {tab.label}
                   {tab.id === "new" && pendingNewOrders.length > 0
@@ -3089,7 +3230,7 @@ function PreparingOrders({
       <div className="pt-4 pb-6">
         <div className="flex items-baseline justify-between mb-3">
           <h2 className="text-base font-semibold text-black">
-            Preparing orders
+            Processing orders
           </h2>
           <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
         </div>
@@ -3101,7 +3242,7 @@ function PreparingOrders({
   return (
     <div className="pt-4 pb-6">
       <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-base font-semibold text-black">Preparing orders</h2>
+        <h2 className="text-base font-semibold text-black">Processing orders</h2>
         <span className="text-xs text-gray-500">{orders.filter((o) => matchesOrderSearch(o, searchQuery)).length} active</span>
       </div>
       {orders.filter((o) => matchesOrderSearch(o, searchQuery)).length === 0 ? (
@@ -3371,7 +3512,7 @@ const OutForDeliveryOrders = ({ onSelectOrder, refreshToken = 0, searchQuery = "
   return (
     <div className="pt-4 pb-6">
       <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-base font-semibold text-black">Out for delivery</h2>
+        <h2 className="text-base font-semibold text-black">On the way</h2>
         <span className="text-xs text-gray-500">{orders.filter((o) => matchesOrderSearch(o, searchQuery)).length} active</span>
       </div>
       {orders.filter((o) => matchesOrderSearch(o, searchQuery)).length === 0 ? (
