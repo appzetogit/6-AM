@@ -197,6 +197,10 @@ export default function PointOfSale() {
       toast.error("Pay later needs a customer — pick one or add a phone number")
       return
     }
+    // The table belongs to the order, not to the payment, so it is asked for
+    // before any tender dialog. Asked after one, it fires on the way back from
+    // the keypad and throws away the amount the cashier just counted in.
+    if (orderType === "dine_in" && !tableNo) { setModal("table"); return }
     if (mode === "multiple" && !tenders) { setModal("multiple"); return }
     // A card swipe is recorded, not just taken: the machine's transaction
     // number is what a chargeback is traced by, and nobody goes back for it.
@@ -204,7 +208,6 @@ export default function PointOfSale() {
     // Cash is handed over as notes, so the amount has to be asked for before
     // the sale — the change owed is worked out from it, not from the bill.
     if (mode === "cash" && !tenders) { setPendingWillPrint(print); setModal("cash"); return }
-    if (orderType === "dine_in" && !tableNo) { setModal("table"); return }
 
     setBusy(true)
     try {
