@@ -8,6 +8,10 @@ import { FoodDeliverySlotBooking } from '../src/modules/food/admin/models/delive
 import { FoodRestaurant } from '../src/modules/food/restaurant/models/restaurant.model.js';
 import { FoodRestaurantOutletTimings } from '../src/modules/food/restaurant/models/outletTimings.model.js';
 import { assertRestaurantAcceptingOrders } from '../src/modules/food/orders/services/order-pricing.service.js';
+import {
+    activateScheduledOrder,
+    expireUnacceptedOrders
+} from '../src/modules/food/orders/services/order.service.js';
 import * as slots from '../src/modules/food/admin/services/deliverySlot.service.js';
 import { slotStartOn } from '../src/modules/food/admin/services/deliverySlot.service.js';
 
@@ -84,6 +88,86 @@ describe('defining a slot', () => {
         assert.equal(visible.length, 0);
         const { slots: all } = await slots.listSlots({ includeInactive: true });
         assert.equal(all.length, 1);
+    });
+});
+
+describe('a booking is not something to act on yet', () => {
+    /**
+     * Two things used to treat a booking as if it needed attention the moment
+     * it was placed, because before windows existed every order did.
+     *
+     * The acceptance clock is the dangerous one: a shop that does not
+     * auto-accept got an order at midnight for the 7am round with minutes to
+     * accept it, and the sweep cancelled it while they slept.
+     */
+    const makeShop = (over = {}) =>
+        FoodRestaurant.create({
+            restaurantName: 'Corner Store',
+            ownerName: 'Owner',
+            ownerPhone: '9000000002',
+            phone: '9000000002',
+            status: 'approved',
+            ...over
+        });
+
+    const bookingDueAt = (when, over = {}) =>
+        FoodOrder.collection.insertOne({
+            _id: someId(),
+            orderStatus: 'created',
+            scheduledAt: when,
+            acceptanceDeadlineAt: when,
+            ...over
+        });
+
+    it('leaves the seller until the window opens to accept it', async () => {
+        await makeShop();
+        const sevenTomorrow = new Date(`${dayString(1)}T07:00:00`);
+        const { insertedId } = await bookingDueAt(sevenTomorrow);
+
+        // The sweep cancels anything whose deadline has passed. The booking's
+        // has not, and will not until its window.
+        await expireUnacceptedOrders();
+        const after = await FoodOrder.collection.findOne({ _id: insertedId });
+        assert.equal(after.orderStatus, 'created', 'a booking must survive the night');
+    });
+
+    it('still cancels a booking nobody accepted by the time its window opened', async () => {
+        await makeShop();
+        const yesterdayMorning = new Date(`${dayString(-1)}T07:00:00`);
+        const { insertedId } = await bookingDueAt(yesterdayMorning);
+
+        await expireUnacceptedOrders();
+        const after = await FoodOrder.collection.findOne({ _id: insertedId });
+        assert.equal(after.orderStatus, 'cancelled_by_restaurant');
+    });
+
+    it('does not hunt a rider for an order that has already moved on', async () => {
+        // Queued hours ago; by now the seller may have handed it over already.
+        const { insertedId } = await FoodOrder.collection.insertOne({
+            _id: someId(),
+            orderStatus: 'delivered',
+            scheduledAt: new Date()
+        });
+        const result = await activateScheduledOrder(insertedId);
+        assert.equal(result.activated, false);
+        assert.match(result.reason, /delivered/);
+    });
+
+    it('does not hunt a rider for an order that already has one', async () => {
+        const { insertedId } = await FoodOrder.collection.insertOne({
+            _id: someId(),
+            orderStatus: 'confirmed',
+            scheduledAt: new Date(),
+            dispatch: { status: 'assigned' }
+        });
+        const result = await activateScheduledOrder(insertedId);
+        assert.equal(result.activated, false);
+        assert.match(result.reason, /assigned/);
+    });
+
+    it('does not hunt a rider for an order that is gone', async () => {
+        const result = await activateScheduledOrder(someId());
+        assert.deepEqual(result, { activated: false, reason: 'gone' });
     });
 });
 
