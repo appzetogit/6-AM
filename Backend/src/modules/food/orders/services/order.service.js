@@ -45,7 +45,24 @@ import { normalizeDeliveryAddress } from '../../shared/geo.utils.js';
 import * as dispatchService from './order-dispatch.service.js';
 import * as deliveryService from './order-delivery.service.js';
 import * as paymentService from './order-payment.service.js';
-import { resolveSlotForOrder, slotStartOn } from '../../admin/services/deliverySlot.service.js';
+import {
+  claimSlotSeat,
+  releaseSlotSeat,
+  resolveSlotForOrder,
+  slotStartOn,
+} from '../../admin/services/deliverySlot.service.js';
+
+/**
+ * Local midnight of whatever day a moment falls on.
+ *
+ * Delivery windows are keyed by calendar day, and the day a 7am slot belongs to
+ * is the local one — deriving it from the UTC instant puts an early-morning
+ * window on the previous date.
+ */
+const localDayOf = (at) => {
+  const d = new Date(at);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+};
 import {
   enqueueOrderEvent,
   haversineKm,
@@ -824,10 +841,33 @@ export async function createOrder(userId, dto) {
     });
     if (reservation.length > 0) order.stockReservedAt = new Date();
 
+    // A place in the window, taken the same way and for the same reason as the
+    // stock above: two customers paying at the same moment for the last slot of
+    // the evening round must not both get it. The count read when the list was
+    // drawn cannot decide that — only this can.
+    const seat = booking?.deliverySlot?.slotId
+      ? {
+        slotId: booking.deliverySlot.slotId,
+        day: booking.day || localDayOf(booking.scheduledAt || orderAt),
+        orderId: order._id,
+      }
+      : null;
+    if (seat) {
+      const took = await claimSlotSeat({
+        ...seat,
+        capacity: booking.capacity ?? null,
+        // A standing arrangement was agreed before today's orders and is not
+        // turned away by them — but it does take up a place in the window.
+        unconditional: Boolean(dto.deliverySlotSnapshot),
+      });
+      if (!took) throw new ValidationError('This slot is full');
+    }
+
     try {
       await order.save();
     } catch (err) {
       await releaseReservations(reservation);
+      if (seat) await releaseSlotSeat(seat);
       throw err;
     }
 
