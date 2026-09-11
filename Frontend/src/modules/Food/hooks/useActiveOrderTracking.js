@@ -47,8 +47,48 @@ export const isActiveOrder = (order) => {
   return true;
 };
 
+/**
+ * The moment a booking is due, while it is still in the future.
+ *
+ * An order booked into a window is not being cooked yet. Measuring it like one
+ * — placed, plus thirty-five minutes — showed tomorrow's 7am round as arriving
+ * in a minute, and then as permanently overdue.
+ */
+export const getBookedFor = (order) => {
+  const raw = order?.scheduledAt || order?.scheduled_at;
+  if (!raw) return null;
+  const at = new Date(raw);
+  if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) return null;
+  return at;
+};
+
+/** "Today, 7:00–8:00 AM" — what the customer was actually promised. */
+export const getBookedForLabel = (order) => {
+  const at = getBookedFor(order);
+  if (!at) return null;
+
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const sameDay = (a, b) => a.toDateString() === b.toDateString();
+  const day = sameDay(at, today)
+    ? "Today"
+    : sameDay(at, tomorrow)
+      ? "Tomorrow"
+      : at.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+
+  const slot = order?.deliverySlot;
+  if (slot?.startTime && slot?.endTime) return `${day}, ${slot.startTime}–${slot.endTime}`;
+  return `${day}, ${at.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`;
+};
+
 export const getTimeRemaining = (order) => {
   if (!order) return null;
+
+  // A booking counts down to its window, not to a cooking time that has not
+  // started.
+  const bookedFor = getBookedFor(order);
+  if (bookedFor) return Math.max(0, Math.floor((bookedFor - new Date()) / 60000));
 
   const orderTime = new Date(
     order.createdAt || order.orderDate || order.created_at || order.date || Date.now(),
@@ -74,6 +114,13 @@ export function getOrderStatusText(order) {
   const orderPhase = getOrderPhase(order);
   const s = String(orderStatus);
   const p = String(orderPhase);
+
+  // Nothing is being cooked for a window that has not come round yet, so say
+  // when it is coming rather than "Preparing your order" for a day and a half.
+  const bookedFor = getBookedForLabel(order);
+  if (bookedFor && ["confirmed", "created", "pending", "preparing"].includes(s)) {
+    return `Arriving ${bookedFor}`;
+  }
 
   if (s === "confirmed") return "Order confirmed";
   if (s === "preparing" || s === "created" || s === "pending") return "Preparing your order";
