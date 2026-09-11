@@ -31,6 +31,7 @@ import {
 } from "@food/components/ui/dialog"
 import { Textarea } from "@food/components/ui/textarea"
 import { useOrders } from "@food/context/OrdersContext"
+import { getBookedForLabel, getTimeRemaining } from "@food/hooks/useActiveOrderTracking"
 import { useProfile } from "@food/context/ProfileContext"
 import { useLocation as useUserLocation } from "@food/hooks/useLocation"
 import DeliveryTrackingMap from "@food/components/user/DeliveryTrackingMap"
@@ -943,22 +944,17 @@ export default function OrderTracking() {
     return () => clearTimeout(timer1)
   }, [confirmed])
 
+  // What the customer was promised, when they booked a window. Null on an
+  // ordinary order, which keeps every line below reading exactly as it did.
+  const bookedForLabel = getBookedForLabel(order);
+
   // Synchronize ETA with actual order creation time
   useEffect(() => {
     if (!order) return;
     
-    const calculateTimeRemaining = () => {
-      const orderTime = new Date(
-        order.createdAt || order.orderDate || order.created_at || order.date || Date.now()
-      );
-      const estimatedMinutes =
-        order.estimatedDeliveryTime ||
-        order.estimatedTime ||
-        order.estimated_delivery_time ||
-        35;
-      const deliveryTime = new Date(orderTime.getTime() + estimatedMinutes * 60000);
-      return Math.max(0, Math.floor((deliveryTime - new Date()) / 60000));
-    };
+    // Shared with the home-screen dock rather than worked out again here: a
+    // booking counts down to its window, not to when it was placed.
+    const calculateTimeRemaining = () => getTimeRemaining(order);
 
     // Set initial
     setEstimatedTime(calculateTimeRemaining());
@@ -980,7 +976,7 @@ export default function OrderTracking() {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [order?.createdAt, order?.estimatedDeliveryTime, order?.estimatedTime]);
+  }, [order, order?.createdAt, order?.estimatedDeliveryTime, order?.estimatedTime]);
 
   // Listen for order status updates from socket (e.g., "Delivery partner on the way")
   useEffect(() => {
@@ -1223,13 +1219,17 @@ export default function OrderTracking() {
     },
     confirmed: {
       title: "Order Confirmed",
-      subtitle: "Restaurant has accepted your order",
+      subtitle: bookedForLabel
+        ? `Arriving ${bookedForLabel}`
+        : "Restaurant has accepted your order",
       color: "bg-green-600",
       iconType: 'food'
     },
     preparing: {
       title: "Food is being prepared",
-      subtitle: typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : "Cooking your meal",
+      subtitle: bookedForLabel
+        ? `Arriving ${bookedForLabel}`
+        : typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : "Cooking your meal",
       color: "bg-green-600",
       iconType: 'food'
     },
@@ -1253,7 +1253,9 @@ export default function OrderTracking() {
     },
     on_way: {
       title: "Out for delivery",
-      subtitle: typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : "Rider is out for delivery",
+      subtitle: bookedForLabel
+        ? `Arriving ${bookedForLabel}`
+        : typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : "Rider is out for delivery",
       color: "bg-green-600",
       iconType: 'rider'
     },
