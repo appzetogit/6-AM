@@ -5,6 +5,14 @@ import { FoodPosHeldBill } from '../models/posHeldBill.model.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { createOrder } from '../../orders/services/order.service.js';
 import { calculateOrderPricing } from '../../orders/services/order-pricing.service.js';
+import { FoodOffer } from '../../admin/models/offer.model.js';
+import { resolveOrderCartItems } from '../../orders/helpers/order-cart-items.helper.js';
+import {
+    evaluateCoupon,
+    loadCouponCustomerFacts,
+    describeCoupon,
+    isCustomerScoped
+} from '../../orders/services/coupon-eligibility.service.js';
 import { updateTransactionStatus } from '../../orders/services/foodTransaction.service.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 
@@ -328,6 +336,78 @@ export async function createPosOrder(restaurantId, dto = {}) {
 
     const saved = await FoodOrder.findById(result.order._id).lean();
     return { order: result.order, receipt: toReceipt(saved, restaurant) };
+}
+
+// ───────────────────────────── coupons ─────────────────────────────
+
+/**
+ * The coupons this shop can offer on the bill that is open.
+ *
+ * Admin creates these (a seller can create their own too, scoped to their
+ * shop); the till only reads them. Unlike the customer app's list, which hides
+ * anything that does not currently apply, every coupon in scope is returned
+ * with the reason it cannot be used — a cashier with a customer in front of
+ * them needs to be able to say "add ₹120 more and this works", and a coupon
+ * that silently vanishes from the list cannot be explained.
+ *
+ * Eligibility is the pricing engine's own, so a coupon marked usable here will
+ * be honoured by the quote that follows.
+ */
+export async function listPosCoupons(restaurantId, dto = {}) {
+    const items = Array.isArray(dto.items) && dto.items.length ? normalizeItems(dto.items) : [];
+
+    // Judged against the goods, exactly as the pricing engine does — a coupon's
+    // minimum is a minimum on the items, not on the taxed and rounded total.
+    let subtotal = 0;
+    if (items.length) {
+        const resolved = await resolveOrderCartItems(restaurantId, items);
+        subtotal = round2(resolved.reduce((sum, line) => sum + (Number(line.price) || 0) * (Number(line.quantity) || 1), 0));
+    }
+
+    const shopId = new mongoose.Types.ObjectId(String(restaurantId));
+    const offers = await FoodOffer.find({
+        $or: [
+            { restaurantScope: 'all' },
+            { restaurantScope: 'selected', restaurantIds: shopId },
+            { restaurantScope: 'selected', restaurantId: shopId }
+        ]
+    })
+        .sort({ createdAt: -1 })
+        .limit(200)
+        .lean();
+
+    const customerId = dto.customerId && isId(dto.customerId) ? String(dto.customerId) : null;
+    const customer = await loadCouponCustomerFacts(customerId, offers.map((o) => o._id));
+
+    const term = String(dto.search || '').trim().toLowerCase();
+    const rows = offers
+        .filter((o) => !term || String(o.couponCode).toLowerCase().includes(term))
+        .map((offer) => {
+            const verdict = evaluateCoupon(offer, { subtotal, restaurantId, customer });
+            return {
+                id: String(offer._id),
+                // An offer has no name field — the code is what it is called,
+                // on the receipt and in every report.
+                code: offer.couponCode,
+                terms: describeCoupon(offer),
+                minOrderValue: Number(offer.minOrderValue) || 0,
+                endDate: offer.endDate || null,
+                createdBy: offer.createdByRole === 'RESTAURANT' ? 'You' : 'Admin',
+                discount: verdict.discount,
+                eligible: verdict.eligible,
+                reason: verdict.reason,
+                customerScoped: isCustomerScoped(offer)
+            };
+        });
+
+    // Split the way the counter thinks about them: what anyone can have, and
+    // what depends on who is standing there.
+    return {
+        subtotal,
+        hasCustomer: Boolean(customer),
+        coupons: rows.filter((r) => !r.customerScoped),
+        customerCoupons: rows.filter((r) => r.customerScoped)
+    };
 }
 
 // ───────────────────────────── receivables ─────────────────────────────
