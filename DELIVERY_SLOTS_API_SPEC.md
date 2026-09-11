@@ -196,6 +196,21 @@ The window is a **snapshot**. Renaming or retiring the slot later does not rewri
 a placed order says, so show `order.deliverySlot.label` on the tracking screen rather
 than looking the slot up again.
 
+### A booking is not acted on until its window
+
+Two things that happen immediately for an ordinary order are deferred for a booking,
+and the app should not expect them at checkout:
+
+- **The seller's acceptance clock runs to the start of the window**, not to a few
+  minutes from now. `acceptanceDeadlineAt` on a booking equals `scheduledAt`. Do not
+  render a booking on a countdown card built for minutes — a 7am booking placed at
+  midnight legitimately has seven hours on it. A booking still unaccepted when its
+  window opens is cancelled as `cancelled_by_restaurant`, exactly as an ignored
+  instant order is.
+- **The rider hunt starts about half an hour before the window**, not at checkout, so
+  `dispatch.status` stays `unassigned` for hours and that is correct. Do not show
+  "looking for a rider" on a booking until its window is close.
+
 ### Errors
 
 | Status | `message` | Cause |
@@ -441,6 +456,11 @@ UI and the result read back out of the database.
 | 38 | Booking a window on a shop that has paused orders | 400 `Store is currently offline.` | dev script |
 | 39 | Same, on the cart screen | pay button reads `Offline` with a window selected | browser |
 | 40 | Booking a window outside the shop's hours, shop switched on | accepted | browser |
+| 41 | Booking on a shop that does not auto-accept | `acceptanceDeadlineAt` = the window start, not now + 4 min | dev script |
+| 42 | Instant order beside it | `acceptanceDeadlineAt` = now + 4 min, unchanged | dev script |
+| 43 | Acceptance sweep run against both | neither cancelled; the booking survives the night | dev script |
+| 44 | Booking unaccepted past its window | cancelled `cancelled_by_restaurant` | tests |
+| 45 | Waking a booking already delivered, dispatched, or gone | no rider hunt started | tests |
 
-Backend suite at the time of writing: 176 tests, all passing
+Backend suite at the time of writing: 197 tests, all passing
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
