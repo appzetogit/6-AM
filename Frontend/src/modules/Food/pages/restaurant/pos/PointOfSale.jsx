@@ -14,6 +14,7 @@ import PosHoldBillsModal from "@food/components/restaurant/pos/PosHoldBillsModal
 import PosOrdersModal from "@food/components/restaurant/pos/PosOrdersModal"
 import PosPayScreen from "@food/components/restaurant/pos/PosPayScreen"
 import PosCouponModal from "@food/components/restaurant/pos/PosCouponModal"
+import PosCardDetailsModal from "@food/components/restaurant/pos/PosCardDetailsModal"
 import { PosChargesModal, PosTableModal } from "@food/components/restaurant/pos/PosSmallModals"
 import { KEY_ACTIONS, lineDiscount, printReceipt, ORDER_TYPE_LABEL } from "@food/components/restaurant/pos/posUtils"
 
@@ -55,8 +56,20 @@ export default function PointOfSale() {
   const [quoting, setQuoting] = useState(false)
   const [lastBill, setLastBill] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [modal, setModal] = useState(null) // holds | orders | payments | multiple | coupon | charges | table
+  const [modal, setModal] = useState(null) // holds | orders | payments | multiple | coupon | charges | table | card
+  // Whether the card payment being collected came from Card & Print (F9)
+  // rather than Card (F3) — the dialog is the same either way.
+  const [cardWillPrint, setCardWillPrint] = useState(false)
   const [invoiceRef, setInvoiceRef] = useState("")
+
+  // The shop's own account, named on a card tender so a settlement query knows
+  // which bank the money landed in.
+  const bankAccounts = useMemo(() => {
+    if (!restaurant?.accountNumber) return []
+    const holder = restaurant.accountHolderName || restaurant.restaurantName || "Account"
+    const tail = String(restaurant.accountNumber).slice(-4)
+    return [`${holder} · ••••${tail}${restaurant.ifscCode ? ` · ${restaurant.ifscCode}` : ""}`]
+  }, [restaurant])
 
   const salesmen = useMemo(() => {
     const names = [restaurant?.ownerName, restaurant?.restaurantName].map((s) => String(s || "").trim()).filter(Boolean)
@@ -184,6 +197,9 @@ export default function PointOfSale() {
       return
     }
     if (mode === "multiple" && !tenders) { setModal("multiple"); return }
+    // A card swipe is recorded, not just taken: the machine's transaction
+    // number is what a chargeback is traced by, and nobody goes back for it.
+    if (mode === "card" && !tenders) { setCardWillPrint(print); setModal("card"); return }
     if (orderType === "dine_in" && !tableNo) { setModal("table"); return }
 
     setBusy(true)
@@ -409,6 +425,18 @@ export default function PointOfSale() {
       ) : null}
       {modal === "charges" ? (
         <PosChargesModal current={additionalCharges} onClose={() => setModal(null)} onApply={(n) => { setAdditionalCharges(n); setModal(null) }} />
+      ) : null}
+      {modal === "card" && quote?.pricing ? (
+        <PosCardDetailsModal
+          total={quote.pricing.total}
+          bankAccounts={bankAccounts}
+          hasCustomer={Boolean(customer)}
+          busy={busy}
+          onClose={() => setModal(null)}
+          onFinalize={(card) =>
+            pay("card", { print: cardWillPrint || autoPrint, tenders: [{ mode: "card", ...card }] })
+          }
+        />
       ) : null}
       {modal === "table" ? (
         <PosTableModal current={tableNo} onClose={() => setModal(null)} onApply={(t) => { setTableNo(t); setModal(null) }} />
