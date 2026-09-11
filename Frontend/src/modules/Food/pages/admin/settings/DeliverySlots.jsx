@@ -62,7 +62,7 @@ export default function DeliverySlots() {
     try {
       // Retired slots are shown too, greyed out — a slot that vanished from the
       // screen but still names old orders is the confusing version.
-      const res = await adminAPI.getDeliverySlots({ includeInactive: true })
+      const res = await adminAPI.getDeliverySlots({ includeInactive: true, withCoverage: true })
       setSlots(res?.data?.data?.slots || [])
     } catch (err) {
       toast.error(err?.response?.data?.message || "Failed to load delivery slots")
@@ -196,6 +196,21 @@ export default function DeliverySlots() {
           {describeDays(slot.daysOfWeek)} · {describeCutoff(slot.cutoffMinutes)} ·{" "}
           {slot.capacity ? `${slot.capacity} orders max` : "No limit on orders"}
         </p>
+        {/* Ordering into a window is deliberately not blocked by a shop's
+            counter hours — an early round exists because the counter is shut.
+            That leaves nothing to say when a window nobody can serve gets
+            published, so it is said here. */}
+        {slot.isActive && slot.coverage && slot.coverage.total > 0 ? (
+          slot.coverage.open === 0 ? (
+            <p className="mt-1 text-xs font-medium text-red-600">
+              No shop is open during this window — orders will still be accepted for it.
+            </p>
+          ) : slot.coverage.open < slot.coverage.total ? (
+            <p className="mt-1 text-xs text-amber-700">
+              {slot.coverage.open} of {slot.coverage.total} shops are open during this window.
+            </p>
+          ) : null
+        ) : null}
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
