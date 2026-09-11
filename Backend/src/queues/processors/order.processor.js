@@ -27,6 +27,18 @@ export const processOrderJob = async (job) => {
         }
     }
 
+    // A booking whose window is now close. Queued when the order was placed,
+    // hours ago, so the service re-reads it before doing anything.
+    if (action === 'SCHEDULED_ORDER_ACTIVATE') {
+        try {
+            const { activateScheduledOrder } = await import('../../../modules/food/orders/services/order.service.js');
+            const result = await activateScheduledOrder(orderMongoId);
+            logger.info(`[BullMQ:order] SCHEDULED_ORDER_ACTIVATE ${orderMongoId} -> ${JSON.stringify(result)}`);
+        } catch (err) {
+            logger.error(`[BullMQ:order] SCHEDULED_ORDER_ACTIVATE failed: ${err.message}`);
+        }
+    }
+
     if (action === 'ORDER_ACCEPTANCE_TIMEOUT_CHECK') {
         try {
             const { expireUnacceptedOrderById } = await import('../../../modules/food/orders/services/order.service.js');
