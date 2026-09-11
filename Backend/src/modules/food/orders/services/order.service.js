@@ -521,8 +521,11 @@ export async function createOrder(userId, dto) {
       throw new ValidationError('Invalid scheduled time');
     }
     // Outlet hours gate the app. Someone ringing up a sale at the till is, by
-    // definition, open.
-    if (!(dto.pos && typeof dto.pos === "object")) {
+    // definition, open — and so is a delivery window the platform publishes:
+    // the 7am round exists precisely because the counter is shut at 7am, so
+    // measuring a booked window against opening hours would make every early
+    // slot unorderable. Counter hours still govern ordering for right now.
+    if (!(dto.pos && typeof dto.pos === "object") && !booking) {
       assertRestaurantOpenForOrdering(restaurant, orderAt);
     }
 
