@@ -97,6 +97,24 @@ function pricingInputOf(dto, items) {
     };
 }
 
+/**
+ * The card fields off a tender, trimmed and capped.
+ *
+ * Only kept for card tenders: a cash line carrying a card holder name is
+ * either a mistake or a client bug, and storing it would make the field
+ * useless for the reconciliation it exists for.
+ */
+function cardDetailsOf(raw, mode) {
+    if (mode !== 'card' || !raw || typeof raw !== 'object') return {};
+    const clip = (v) => String(v || '').trim().slice(0, 120);
+    return {
+        bankAccount: clip(raw.bankAccount),
+        customerBank: clip(raw.customerBank),
+        cardHolder: clip(raw.cardHolder),
+        transactionNo: clip(raw.transactionNo)
+    };
+}
+
 /** Which single method the order's payment snapshot names for a split bill. */
 function dominantTenderMode(tenders) {
     const totals = new Map();
@@ -129,7 +147,23 @@ function resolveTenders(dto, total) {
     }
 
     if (mode !== 'multiple') {
-        return { paymentMode: mode, tenders: [{ mode, amount: total, at: new Date() }], paymentMethod: mode, dueAmount: 0, changeGiven: 0 };
+        // A single-mode payment normally settles the whole bill, but the card
+        // dialog lets the cashier take less than the total — a customer paying
+        // part on plastic. What is left is a due, on the same terms as any
+        // other short payment.
+        const asked = dto.tenders?.[0]?.amount;
+        const amount = Number.isFinite(Number(asked)) ? round2(asked) : total;
+        if (!(amount > 0)) throw new ValidationError('Payment amount must be above zero');
+        if (amount - total > 0.01 && mode !== 'cash') {
+            throw new ValidationError(`₹${amount.toFixed(2)} is more than the ₹${total.toFixed(2)} bill — only cash can be over-tendered`);
+        }
+        return {
+            paymentMode: mode,
+            tenders: [{ mode, amount, at: new Date(), ...cardDetailsOf(dto.tenders?.[0], mode) }],
+            paymentMethod: mode,
+            dueAmount: round2(Math.max(0, total - amount)),
+            changeGiven: round2(Math.max(0, amount - total))
+        };
     }
 
     const raw = Array.isArray(dto.tenders) ? dto.tenders : [];
@@ -141,7 +175,13 @@ function resolveTenders(dto, total) {
         }
         const amount = round2(t?.amount);
         if (!(amount > 0)) throw new ValidationError('Every tender needs an amount above zero');
-        return { mode: tenderMode, amount, at: new Date(), note: String(t?.note || '').slice(0, 300) };
+        return {
+            mode: tenderMode,
+            amount,
+            at: new Date(),
+            note: String(t?.note || '').slice(0, 300),
+            ...cardDetailsOf(t, tenderMode)
+        };
     });
     const received = round2(tenders.reduce((s, t) => s + t.amount, 0));
     const dueAmount = round2(Math.max(0, total - received));
