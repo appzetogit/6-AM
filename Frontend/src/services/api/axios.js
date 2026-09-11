@@ -50,6 +50,9 @@ const ADMIN_PERMISSION_PATH_MAP = [
   { prefix: "/food/admin/dashboard-analytics", section: "dashboard" },
   { prefix: "/food/admin/dashboard-operations", section: "dashboard" },
   { prefix: "/food/admin/referral-settings", section: "referral_rewards" },
+  // Before the /food/admin/delivery catch-all below, which would swallow it.
+  // Slots are how the shop chooses to sell, not how riders are managed.
+  { prefix: "/food/admin/delivery-slots", section: "system_settings" },
   { prefix: "/food/admin/delivery", section: "delivery_management" },
   { prefix: "/food/admin/fee-settings", section: "delivery_management" },
   { prefix: "/food/admin/delivery-cash-limit", section: "delivery_management" },
