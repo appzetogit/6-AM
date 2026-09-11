@@ -7,6 +7,7 @@ import { FoodOrder } from '../src/modules/food/orders/models/order.model.js';
 import { FoodDeliverySlotBooking } from '../src/modules/food/admin/models/deliverySlotBooking.model.js';
 import { FoodRestaurant } from '../src/modules/food/restaurant/models/restaurant.model.js';
 import { FoodRestaurantOutletTimings } from '../src/modules/food/restaurant/models/outletTimings.model.js';
+import { assertRestaurantAcceptingOrders } from '../src/modules/food/orders/services/order-pricing.service.js';
 import * as slots from '../src/modules/food/admin/services/deliverySlot.service.js';
 import { slotStartOn } from '../src/modules/food/admin/services/deliverySlot.service.js';
 
@@ -23,6 +24,8 @@ import { slotStartOn } from '../src/modules/food/admin/services/deliverySlot.ser
 before(connectTestDb);
 after(disconnectTestDb);
 beforeEach(resetDb);
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const makeSlot = (over = {}) =>
     slots.createSlot({ label: 'Morning 7-8', startTime: '07:00', endTime: '08:00', ...over });
@@ -81,6 +84,54 @@ describe('defining a slot', () => {
         assert.equal(visible.length, 0);
         const { slots: all } = await slots.listSlots({ includeInactive: true });
         assert.equal(all.length, 1);
+    });
+});
+
+describe('a shop that is switched off', () => {
+    /**
+     * A booked window sets aside the clock, not the shop's own switch. When
+     * the whole availability check was skipped for bookings, a shop that had
+     * paused orders — closed for the day, rush, an emergency — still took
+     * bookings for 7am tomorrow.
+     */
+    const shopThatIs = (over) => ({
+        isActive: true,
+        isAcceptingOrders: true,
+        outletTimings: { timings: [] },
+        ...over
+    });
+
+    it('still takes a booking when it is open for business', () => {
+        assert.doesNotThrow(() => assertRestaurantAcceptingOrders(shopThatIs({})));
+    });
+
+    it('refuses a booking while it has paused orders', () => {
+        assert.throws(
+            () => assertRestaurantAcceptingOrders(shopThatIs({ isAcceptingOrders: false })),
+            /offline/i
+        );
+    });
+
+    it('refuses a booking once the admin has deactivated it', () => {
+        assert.throws(
+            () => assertRestaurantAcceptingOrders(shopThatIs({ isActive: false })),
+            /closed/i
+        );
+    });
+
+    it('does not consult the clock, which is the whole point of a window', () => {
+        // Shut at 7am by its own hours, and still bookable for the 7am round.
+        const earlyBird = shopThatIs({
+            outletTimings: {
+                timings: DAY_NAMES.map((day) => ({
+                    day,
+                    isOpen: true,
+                    openingTime: '09:00',
+                    closingTime: '22:00'
+                }))
+            }
+        });
+        assert.doesNotThrow(() => assertRestaurantAcceptingOrders(earlyBird));
     });
 });
 
