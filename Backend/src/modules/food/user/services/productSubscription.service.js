@@ -6,6 +6,7 @@ import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { createOrder } from '../../orders/services/order.service.js';
+import { getSlotForSubscription } from '../../admin/services/deliverySlot.service.js';
 import { logger } from '../../../../utils/logger.js';
 
 const DEFAULT_HORIZON_DAYS = 14;
@@ -124,6 +125,11 @@ export async function createSubscription(userId, dto) {
 
     await resolveAddress(userId, dto.addressId); // throws if not found
 
+    // A slot decides the time; a bare deliveryTime is still honoured for the
+    // callers that predate slots. deliveryTime carries the start of the window
+    // either way, so nothing downstream has to know which was used.
+    const slot = dto.deliverySlotId ? await getSlotForSubscription(dto.deliverySlotId) : null;
+
     if (dto.frequency === 'weekly' && (!dto.daysOfWeek || !dto.daysOfWeek.length)) {
         throw new ValidationError('daysOfWeek is required for a weekly subscription');
     }
@@ -141,7 +147,17 @@ export async function createSubscription(userId, dto) {
         frequency: dto.frequency,
         daysOfWeek: dto.frequency === 'weekly' ? dto.daysOfWeek : [],
         dayOfMonth: dto.frequency === 'monthly' ? dto.dayOfMonth : null,
-        deliveryTime: dto.deliveryTime,
+        deliveryTime: slot ? slot.startTime : dto.deliveryTime,
+        ...(slot
+            ? {
+                deliverySlot: {
+                    slotId: slot.id,
+                    label: slot.label,
+                    startTime: slot.startTime,
+                    endTime: slot.endTime
+                }
+            }
+            : {}),
         startDate: startOfDay(dto.startDate),
         addressId: dto.addressId,
         paymentMethod: dto.paymentMethod || 'cash',
@@ -291,6 +307,17 @@ export async function placeDueSubscriptionOrders(now = new Date()) {
                 }],
                 address,
                 paymentMethod: subscription.paymentMethod,
+                // The window the customer signed up for, carried onto the order
+                // so the rider board and their own screen say the same thing a
+                // one-off slot booking would. Snapshotted rather than resolved
+                // by id: a slot retired since they subscribed must not fail the
+                // order, it just keeps delivering when it always did.
+                ...(subscription.deliverySlot?.slotId
+                    ? {
+                        deliverySlotSnapshot: subscription.deliverySlot,
+                        scheduledAt: occurrence.scheduledDate,
+                    }
+                    : {}),
             });
 
             await FoodSubscriptionOccurrence.updateOne(
