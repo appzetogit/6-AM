@@ -2,7 +2,7 @@ import { memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronRight, X } from "lucide-react";
 import { motion } from "framer-motion";
-import { getOrderKey, getOrderStatusText } from "@food/hooks/useActiveOrderTracking";
+import { getBookedFor, getOrderKey, getOrderStatusText } from "@food/hooks/useActiveOrderTracking";
 
 const CookingAnimation = memo(() => (
   <div className="relative w-10 h-10 flex items-center justify-center rounded-xl bg-orange-50 border border-orange-100 overflow-visible shadow-[0_4px_12px_rgba(235,89,14,0.12)] shrink-0">
@@ -35,6 +35,8 @@ function OrderTrackingRowInner({ order, timeRemaining, onDismiss, compact = fals
   const orderId = getOrderKey(order);
   const restaurantName = order.restaurant || order.restaurantName || "Restaurant";
   const statusText = getOrderStatusText(order);
+  // A booking is hours or days out; "1200m" is not an ETA anyone reads.
+  const bookedFor = getBookedFor(order);
   const themeColor = "var(--module-theme-color, #EB590E)";
 
   return (
@@ -100,10 +102,14 @@ function OrderTrackingRowInner({ order, timeRemaining, onDismiss, compact = fals
           }}
         >
           <p className="text-orange-50 text-[9px] font-bold uppercase tracking-wider opacity-95 leading-tight">
-            ETA
+            {bookedFor ? "Booked" : "ETA"}
           </p>
           <p className="text-white text-sm font-black leading-tight">
-            {timeRemaining !== null ? `${Math.max(1, timeRemaining)}m` : "--"}
+            {bookedFor
+              ? bookedFor.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
+              : timeRemaining !== null
+                ? `${Math.max(1, timeRemaining)}m`
+                : "--"}
           </p>
         </div>
       </div>
