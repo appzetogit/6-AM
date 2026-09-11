@@ -1899,6 +1899,9 @@ export const restaurantAPI = {
   /** POS — the seller's till. Every call is scoped server-side to the signed-in shop. */
   posQuote: (body = {}) =>
     apiClient.post("/food/restaurant/pos/quote", body, { contextModule: "restaurant" }),
+  /** Coupons this shop can offer, each judged against the open bill. */
+  posCoupons: (body = {}) =>
+    apiClient.post("/food/restaurant/pos/coupons", body, { contextModule: "restaurant" }),
   posCreateOrder: (body = {}) =>
     apiClient.post("/food/restaurant/pos/orders", body, { contextModule: "restaurant" }),
   posListOrders: (params = {}) =>
