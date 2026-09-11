@@ -390,7 +390,11 @@ export default function PointOfSale() {
           bankAccount={restaurant?.accountNumber ? `${restaurant.accountHolderName || restaurant.restaurantName || "Account"} · ${String(restaurant.accountNumber).slice(-4).padStart(8, "•")}${restaurant.ifscCode ? ` · ${restaurant.ifscCode}` : ""}` : ""}
           busy={busy}
           onBack={() => setModal(null)}
-          onProceed={(tenders) => pay("multiple", { tenders, print: autoPrint })}
+          // The Pay screen always prints: it is the deliberate path a cashier
+          // walks for a split or a cash-with-change sale, and the change due is
+          // on the bill. The auto-print toggle governs the quick F-keys, which
+          // is what the separate Cash / Cash & Print pair is for.
+          onProceed={(tenders) => pay("multiple", { tenders, print: true })}
         />
       ) : null}
       {modal === "coupon" ? (
