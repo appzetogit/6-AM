@@ -1,10 +1,9 @@
 import mongoose from 'mongoose';
-import { FoodOrder } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodFeeSettings } from '../../admin/models/feeSettings.model.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
-import { FoodOfferUsage } from '../../admin/models/offerUsage.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
+import { evaluateCoupon, loadCouponCustomerFacts } from './coupon-eligibility.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import {
   calculateDistanceKm,
@@ -392,81 +391,19 @@ export async function calculateOrderPricing(userId, dto, options = {}) {
     : "";
 
   if (codeRaw) {
-    const now = new Date();
     const offer = await FoodOffer.findOne({ couponCode: codeRaw }).lean();
     if (offer) {
-      const offerEnd = offer.endDate ? new Date(offer.endDate) : null;
-      if (offerEnd && offerEnd.getHours() === 0 && offerEnd.getMinutes() === 0) {
-        offerEnd.setHours(23, 59, 59, 999);
-      }
-      const endOk = !offerEnd || now <= offerEnd;
-      const startOk = !offer.startDate || now >= new Date(offer.startDate);
-      const statusOk = offer.status === "active" && offer.showInCart !== false;
-      const selectedRestaurantIds = Array.isArray(offer.restaurantIds) && offer.restaurantIds.length > 0
-        ? offer.restaurantIds
-        : [offer.restaurantId].filter(Boolean);
-      const scopeOk =
-        offer.restaurantScope !== "selected" ||
-        selectedRestaurantIds.some((id) => String(id) === String(dto.restaurantId || ""));
-      const minOk = subtotal >= (Number(offer.minOrderValue) || 0);
-      let usageOk = true;
-      if (
-        Number(offer.usageLimit) > 0 &&
-        Number(offer.usedCount || 0) >= Number(offer.usageLimit)
-      ) {
-        usageOk = false;
-      }
-
-      let perUserOk = true;
-      if (userId && mongoose.Types.ObjectId.isValid(userId) && Number(offer.perUserLimit) > 0) {
-        const usage = await FoodOfferUsage.findOne({
-          offerId: offer._id,
-          userId: new mongoose.Types.ObjectId(userId),
-        }).lean();
-        if (usage && Number(usage.count) >= Number(offer.perUserLimit)) {
-          perUserOk = false;
-        }
-      }
-
-      let firstOrderOk = true;
-      if (userId && mongoose.Types.ObjectId.isValid(userId)) {
-        if (offer.customerScope === "first-time") {
-          const c = await FoodOrder.countDocuments({
-            userId: new mongoose.Types.ObjectId(userId),
-          });
-          firstOrderOk = c === 0;
-        }
-        if (offer.isFirstOrderOnly === true) {
-          const c2 = await FoodOrder.countDocuments({
-            userId: new mongoose.Types.ObjectId(userId),
-          });
-          if (c2 > 0) firstOrderOk = false;
-        }
-      }
-
-      const allowed =
-        statusOk &&
-        startOk &&
-        endOk &&
-        scopeOk &&
-        minOk &&
-        usageOk &&
-        perUserOk &&
-        firstOrderOk;
-
-      if (allowed) {
-        if (offer.discountType === "percentage") {
-          const raw = subtotal * (Number(offer.discountValue) / 100);
-          const capped = Number(offer.maxDiscount)
-            ? Math.min(raw, Number(offer.maxDiscount))
-            : raw;
-          discount = Math.max(0, Math.min(subtotal, Math.floor(capped)));
-        } else {
-          discount = Math.max(
-            0,
-            Math.min(subtotal, Math.floor(Number(offer.discountValue) || 0)),
-          );
-        }
+      // The same judgement the till's coupon list shows the cashier. Keeping
+      // one implementation is the point: a list that offers a coupon this
+      // engine then refuses is worse than no list at all.
+      const customer = await loadCouponCustomerFacts(userId, [offer._id]);
+      const verdict = evaluateCoupon(offer, {
+        subtotal,
+        restaurantId: dto.restaurantId,
+        customer,
+      });
+      if (verdict.eligible) {
+        discount = verdict.discount;
         appliedCoupon = { code: codeRaw, discount };
       }
     }
