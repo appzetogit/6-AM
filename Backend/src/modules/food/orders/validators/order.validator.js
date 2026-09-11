@@ -100,7 +100,12 @@ export function validateCalculateOrderDto(body) {
             })
             .passthrough()
             .optional(),
-        scheduledAt: z.string().datetime().optional()
+        scheduledAt: z.string().datetime().optional(),
+        // A booked window. When present the server derives the delivery time
+        // from the slot and re-checks it is still open, rather than trusting
+        // the scheduledAt the screen worked out some minutes earlier.
+        deliverySlotId: z.string().min(1).optional(),
+        deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'deliveryDate must be YYYY-MM-DD').optional()
     });
     const result = schema.safeParse(body);
     if (!result.success) {
@@ -135,7 +140,12 @@ export function validateCreateOrderDto(body) {
             errorMap: () => ({ message: 'Unsupported payment method' }),
         }),
         zoneId: z.string().nullable().optional(),
-        scheduledAt: z.string().datetime().optional()
+        scheduledAt: z.string().datetime().optional(),
+        // A booked window. When present the server derives the delivery time
+        // from the slot and re-checks it is still open, rather than trusting
+        // the scheduledAt the screen worked out some minutes earlier.
+        deliverySlotId: z.string().min(1).optional(),
+        deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'deliveryDate must be YYYY-MM-DD').optional()
     });
     const result = schema.safeParse(body);
     if (!result.success) {
