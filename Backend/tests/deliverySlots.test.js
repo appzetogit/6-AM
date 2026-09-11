@@ -4,6 +4,9 @@ import assert from 'node:assert/strict';
 import { connectTestDb, disconnectTestDb, expectError, resetDb, someId } from './helpers/db.js';
 import { FoodDeliverySlot } from '../src/modules/food/admin/models/deliverySlot.model.js';
 import { FoodOrder } from '../src/modules/food/orders/models/order.model.js';
+import { FoodDeliverySlotBooking } from '../src/modules/food/admin/models/deliverySlotBooking.model.js';
+import { FoodRestaurant } from '../src/modules/food/restaurant/models/restaurant.model.js';
+import { FoodRestaurantOutletTimings } from '../src/modules/food/restaurant/models/outletTimings.model.js';
 import * as slots from '../src/modules/food/admin/services/deliverySlot.service.js';
 import { slotStartOn } from '../src/modules/food/admin/services/deliverySlot.service.js';
 
@@ -78,6 +81,65 @@ describe('defining a slot', () => {
         assert.equal(visible.length, 0);
         const { slots: all } = await slots.listSlots({ includeInactive: true });
         assert.equal(all.length, 1);
+    });
+});
+
+describe('telling the admin who can serve a window', () => {
+    /**
+     * Ordering into a window is deliberately not blocked by a shop's counter
+     * hours — an early round exists precisely because the counter is shut then.
+     * Nothing else would tell an admin that the 3am window they just published
+     * is one nobody can serve, so the slots screen says it.
+     */
+    const makeShop = (over = {}) =>
+        FoodRestaurant.create({
+            restaurantName: 'Corner Store',
+            ownerName: 'Owner',
+            ownerPhone: '9000000001',
+            phone: '9000000001',
+            status: 'approved',
+            ...over
+        });
+
+    it('counts a shop with no hours on record as keeping standard ones', async () => {
+        // The rest of the app reads a missing record as open 09:00–22:00.
+        // Reading it as "never open" here would warn on every window.
+        await makeShop();
+        await makeSlot({ label: 'Midday', startTime: '12:00', endTime: '13:00' });
+
+        const { slots: listed } = await slots.listSlots({ withCoverage: true });
+        assert.deepEqual(listed[0].coverage, { open: 1, total: 1 });
+    });
+
+    it('reports nobody able to serve a window outside opening hours', async () => {
+        await makeShop();
+        await makeSlot({ label: 'Dawn', startTime: '03:00', endTime: '04:00' });
+
+        const { slots: listed } = await slots.listSlots({ withCoverage: true });
+        assert.deepEqual(listed[0].coverage, { open: 0, total: 1 });
+    });
+
+    it('counts a shop open on any one of the days the window runs', async () => {
+        const shop = await makeShop();
+        await FoodRestaurantOutletTimings.create({
+            restaurantId: shop._id,
+            timings: [
+                { day: 'Monday', isOpen: true, openingTime: '06:00', closingTime: '23:00' },
+                { day: 'Tuesday', isOpen: false }
+            ]
+        });
+        // Runs Monday and Tuesday; Monday alone is enough to serve it.
+        await makeSlot({ label: 'Early', startTime: '07:00', endTime: '08:00', daysOfWeek: [1, 2] });
+
+        const { slots: listed } = await slots.listSlots({ withCoverage: true });
+        assert.deepEqual(listed[0].coverage, { open: 1, total: 1 });
+    });
+
+    it('says nothing about coverage unless the screen asks for it', async () => {
+        await makeShop();
+        await makeSlot();
+        const { slots: listed } = await slots.listSlots();
+        assert.equal(listed[0].coverage, undefined, 'the customer-facing reads do not pay for this');
     });
 });
 
@@ -225,6 +287,33 @@ describe('the last place in a window', () => {
         );
         // And now it is over-full, so the next one-off booking is turned away.
         assert.equal(await slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: someId() }), false);
+    });
+
+    it('records nothing for a window with no limit, which nothing contends over', async () => {
+        // Writing an id per order into one document that is never pruned — only
+        // capped windows are reconciled — would grow it without bound.
+        const { slot } = await makeSlot({ capacity: null });
+        const slotId = (await FoodDeliverySlot.findById(slot.id).lean())._id;
+        const day = new Date(`${dayString(1)}T00:00:00`);
+
+        for (let i = 0; i < 5; i += 1) {
+            assert.equal(await slots.claimSlotSeat({ slotId, day, capacity: null, orderId: someId() }), true);
+        }
+        assert.equal(await FoodDeliverySlotBooking.countDocuments({ slotId, day }), 0);
+    });
+
+    it('starts counting the moment a limit is put on a window', async () => {
+        // Nothing was recorded while it was uncapped, so the orders already in
+        // it have to be picked up from the orders themselves.
+        const { slot } = await makeSlot({ capacity: null });
+        const tomorrow = dayString(1);
+        const slotId = (await FoodDeliverySlot.findById(slot.id).lean())._id;
+        await bookInto(slotId, new Date(`${tomorrow}T07:00:00`));
+
+        await slots.updateSlot(slot.id, { capacity: 1 });
+        const listed = await slots.getAvailableSlots({ date: tomorrow });
+        assert.equal(listed.slots[0].booked, 1);
+        assert.equal(listed.slots[0].available, false);
     });
 
     it('frees a cancelled order’s place on the next read', async () => {
