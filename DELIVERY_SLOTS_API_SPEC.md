@@ -277,6 +277,12 @@ build includes an admin console — the customer app uses section 2 only.
 | Query | Notes |
 |---|---|
 | `includeInactive` | Defaults to **true**. Pass `false` to omit retired slots |
+| `withCoverage` | `true` adds `coverage: { open, total }` per slot — how many approved shops keep hours covering the window, out of how many there are. Costs two extra queries, so only the slots screen asks for it |
+
+`coverage.open === 0` means the window is one no shop is open for. Say so on the
+screen — ordering into a window deliberately ignores counter hours, so nothing else
+would tell the admin that the 3 AM window they just published cannot be served. Warn,
+do not block: publishing it is their call.
 
 ```json
 { "success": true, "message": "Delivery slots", "data": { "slots": [ … ] } }
@@ -422,6 +428,10 @@ UI and the result read back out of the database.
 | 31 | 7–8 AM window on a shop opening at 09:00 | ordered through the cart UI and placed | browser |
 | 32 | Window label on the seller's Scheduled tab | `12 Sept, 07:00 am · Morning 7-8 AM · 07:00–08:00` | browser |
 | 33 | Order naming a slot that was later deleted outright | still read its window correctly | browser |
+| 34 | Window outside every shop's hours | flagged on the admin screen, still orderable | browser |
+| 35 | Window inside opening hours | no warning | browser |
+| 36 | Shop with no hours on record | counted as keeping standard 09:00–22:00 hours | tests |
+| 37 | Claiming a place in an uncapped window | nothing recorded — nothing contends over it | tests |
 
 Backend suite at the time of writing: 176 tests, all passing
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
