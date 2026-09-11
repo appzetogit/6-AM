@@ -532,6 +532,66 @@ export async function getPosCustomerSummary(restaurantId, userId) {
 
 const ORDER_TYPE_LABEL = { dine_in: 'Dine In', take_away: 'Take Away', walk_in: 'Walk In', delivery: 'Delivery' };
 
+/**
+ * The GST summary a printed bill has to carry, grouped by rate.
+ *
+ * This mirrors computeItemsTax deliberately, line for line. Prices here are
+ * exclusive of GST — the tax is added on top of the line value, not backed out
+ * of it — and a discount reduces the taxable base pro rata across every line.
+ * Getting that backwards prints a taxable value that disagrees with the tax
+ * actually charged, on a document a shop files.
+ *
+ * The split is CGST + SGST in equal halves, which holds because a counter sale
+ * is always intra-state: the customer is standing in the shop. IGST is carried
+ * at zero so the printed table keeps the shape an accountant expects.
+ */
+function taxSummaryOf(order) {
+    const pricing = order.pricing || {};
+    const subtotal = Number(pricing.subtotal) || 0;
+    if (!(subtotal > 0)) return [];
+
+    const discount = Number(pricing.discount) || 0;
+    const taxableShare = Math.max(0, subtotal - discount) / subtotal;
+
+    const byRate = new Map();
+    for (const line of order.items || []) {
+        // null and undefined mean "no slab of its own" — the same distinction
+        // computeItemsTax draws, since Number(null) is 0 and would silently
+        // make every untagged item tax-free.
+        const own = line?.gstRate;
+        const rate = own !== null && own !== undefined && Number.isFinite(Number(own)) ? Number(own) : 0;
+        const lineValue = (Number(line.price) || 0) * (Number(line.quantity) || 1);
+        const taxable = lineValue * taxableShare;
+
+        const row = byRate.get(rate) || { rate, taxableValue: 0, cgst: 0, sgst: 0, cess: 0, igst: 0 };
+        row.taxableValue += taxable;
+        byRate.set(rate, row);
+    }
+
+    const rows = [...byRate.values()].sort((a, b) => a.rate - b.rate);
+    for (const row of rows) {
+        const tax = row.taxableValue * (row.rate / 100);
+        row.taxableValue = round2(row.taxableValue);
+        row.cgst = round2(tax / 2);
+        row.sgst = round2(tax / 2);
+    }
+
+    // The charge rounds the whole tax to a rupee once; summing the halves back
+    // up need not land on the same figure. A tax invoice whose summary does not
+    // add up to the tax charged is the kind of thing an auditor stops on, so
+    // the difference goes onto the largest slab rather than being left to drift.
+    const charged = Number(pricing.tax) || 0;
+    const summed = rows.reduce((sum, r) => sum + r.cgst + r.sgst, 0);
+    const drift = round2(charged - summed);
+    if (drift !== 0 && rows.length) {
+        const biggest = rows.reduce((a, b) => (b.taxableValue > a.taxableValue ? b : a));
+        biggest.cgst = round2(biggest.cgst + drift / 2);
+        biggest.sgst = round2(biggest.sgst + drift / 2);
+    }
+
+    return rows;
+}
+
 /** The shape a printed receipt and the "Last Bill" box read from. */
 export function toReceipt(order, restaurant = null) {
     if (!order) return null;
@@ -551,7 +611,9 @@ export function toReceipt(order, restaurant = null) {
                 address: [restaurant.addressLine1, restaurant.area, restaurant.city, restaurant.pincode].filter(Boolean).join(', '),
                 phone: restaurant.ownerPhone || restaurant.primaryContactNumber || '',
                 gstNumber: restaurant.gstNumber || '',
-                fssaiNumber: restaurant.fssaiNumber || ''
+                fssaiNumber: restaurant.fssaiNumber || '',
+                // Printed as the place of supply, which a tax invoice must name.
+                state: restaurant.state || ''
             }
             : null,
         customer: {
@@ -577,11 +639,18 @@ export function toReceipt(order, restaurant = null) {
             roundOff: round2(pricing.roundOff),
             total: round2(pricing.total)
         },
+        /** Printed as "NO OF QTY", which is what a shop counts a bill by. */
+        totalQuantity: round2((order.items || []).reduce((sum, l) => sum + (Number(l.quantity) || 0), 0)),
+        taxSummary: taxSummaryOf(order),
         payment: {
             mode: order.pos?.paymentMode || order.payment?.method || 'cash',
             method: order.payment?.method || 'cash',
             status: order.payment?.status || '',
             tenders: order.pos?.tenders || [],
+            // What the customer handed over and what went back: the till drawer
+            // has to reconcile against these, not against the bill total.
+            tendered: round2((order.pos?.tenders || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)),
+            changeGiven: round2(order.pos?.changeGiven),
             dueAmount: round2(order.pos?.dueAmount)
         }
     };
