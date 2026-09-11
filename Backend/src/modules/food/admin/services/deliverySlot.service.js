@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
 import { FoodDeliverySlot } from '../models/deliverySlot.model.js';
+import { FoodDeliverySlotBooking } from '../models/deliverySlotBooking.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 
@@ -145,6 +146,167 @@ export async function deactivateSlot(slotId) {
     return updateSlot(slotId, { isActive: false });
 }
 
+const CANCELLED = ['cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'];
+
+/**
+ * How long a claimed seat is held for an order that never got written.
+ *
+ * A seat is taken a moment before the order row is saved, so for that moment it
+ * names an order that does not exist yet. Anything still missing after this is
+ * a claim whose order failed on the way in, and the seat goes back.
+ */
+const ABANDONED_CLAIM_MS = 5 * 60 * 1000;
+
+/**
+ * Brings the ledger for a day back in line with the orders it names.
+ *
+ * The ledger is the thing concurrent bookings contend over, but the orders are
+ * the truth. Cancel an order and its seat should free up; this is where that
+ * happens, on the next read, along with adopting any slot order that reached
+ * the collection without claiming — a subscription's occurrence, say, which is
+ * never refused a window but does occupy one.
+ *
+ * Returns the live order count per slot, which is what `booked` reports.
+ */
+async function reconcileSeats(slotIds, day) {
+    if (!slotIds.length) return new Map();
+    const nextDay = new Date(day.getTime() + 86400000);
+
+    const [ledgers, dayOrders] = await Promise.all([
+        FoodDeliverySlotBooking.find({ slotId: { $in: slotIds }, day }).lean(),
+        FoodOrder.find(
+            {
+                'deliverySlot.slotId': { $in: slotIds },
+                scheduledAt: { $gte: day, $lt: nextDay }
+            },
+            { _id: 1, orderStatus: 1, 'deliverySlot.slotId': 1 }
+        ).lean()
+    ]);
+
+    // Every order in the window, and the subset still standing. Both are needed:
+    // an id the ledger holds whose order was cancelled gives its place back at
+    // once, while one naming no order at all might simply be seconds old.
+    const known = new Set(dayOrders.map((o) => String(o._id)));
+    const liveBySlot = new Map();
+    for (const order of dayOrders) {
+        if (CANCELLED.includes(order.orderStatus)) continue;
+        const key = String(order.deliverySlot.slotId);
+        if (!liveBySlot.has(key)) liveBySlot.set(key, []);
+        liveBySlot.get(key).push(order._id);
+    }
+
+    const ledgerBySlot = new Map(ledgers.map((l) => [String(l.slotId), l]));
+    const abandonedBefore = Date.now() - ABANDONED_CLAIM_MS;
+    const writes = [];
+
+    for (const slotId of slotIds) {
+        const key = String(slotId);
+        const liveIds = liveBySlot.get(key) || [];
+        const ledger = ledgerBySlot.get(key);
+
+        if (!ledger) {
+            // Nothing has claimed here yet, but orders may already hold the
+            // window — a subscription's occurrence, or anything placed before
+            // this ledger existed. Record them, so the next booking is measured
+            // against them rather than against nothing.
+            if (liveIds.length) {
+                writes.push({
+                    updateOne: {
+                        filter: { slotId, day },
+                        update: { $setOnInsert: { slotId, day, orderIds: liveIds } },
+                        upsert: true
+                    }
+                });
+            }
+            continue;
+        }
+
+        const liveSet = new Set(liveIds.map(String));
+        const held = (ledger.orderIds || []);
+        const heldSet = new Set(held.map(String));
+
+        const giveBack = held.filter((id) => {
+            if (liveSet.has(String(id))) return false;
+            // Cancelled: the place is free now.
+            if (known.has(String(id))) return true;
+            // No order of that id at all — a claim whose order never landed.
+            // Left alone for a few minutes, because it may still be in flight.
+            return id.getTimestamp().getTime() < abandonedBefore;
+        });
+        const adopt = liveIds.filter((id) => !heldSet.has(String(id)));
+
+        // $pull and $addToSet cannot address the same field in one update.
+        if (giveBack.length) {
+            writes.push({
+                updateOne: {
+                    filter: { _id: ledger._id },
+                    update: { $pull: { orderIds: { $in: giveBack } } }
+                }
+            });
+        }
+        if (adopt.length) {
+            writes.push({
+                updateOne: {
+                    filter: { _id: ledger._id },
+                    update: { $addToSet: { orderIds: { $each: adopt } } }
+                }
+            });
+        }
+    }
+
+    if (writes.length) await FoodDeliverySlotBooking.bulkWrite(writes, { ordered: true });
+
+    return new Map([...liveBySlot].map(([key, ids]) => [key, ids.length]));
+}
+
+/**
+ * Takes a seat in a window, or reports that it is full.
+ *
+ * One conditional update decides it: the row is only changed while it holds
+ * fewer orders than the window carries, so of two customers paying at the same
+ * moment for the last place, exactly one succeeds. The other is told the
+ * window is full rather than both being let in.
+ *
+ * An uncapped window has nothing to contend over and is recorded without a
+ * condition, so its ledger still reflects what is booked.
+ */
+export async function claimSlotSeat({ slotId, day, capacity, orderId, unconditional = false }) {
+    // The row has to exist before it can be contended over: Mongo will not take
+    // a $expr filter on an upsert. Two requests racing to create it is fine —
+    // the unique {slotId, day} index means one of them just loses the insert.
+    try {
+        await FoodDeliverySlotBooking.updateOne(
+            { slotId, day },
+            { $setOnInsert: { slotId, day, orderIds: [] } },
+            { upsert: true }
+        );
+    } catch (err) {
+        if (err?.code !== 11000) throw err;
+    }
+
+    // A standing arrangement is not refused its window — it was agreed long
+    // before today's orders — but it does take up a place in it.
+    const filter = { slotId, day };
+    if (capacity && !unconditional) {
+        filter.$expr = { $lt: [{ $size: '$orderIds' }, capacity] };
+    }
+
+    // One conditional update decides it. Of two customers paying for the last
+    // place at the same moment, whichever update lands second no longer matches
+    // the size condition and comes back empty.
+    const taken = await FoodDeliverySlotBooking.findOneAndUpdate(
+        filter,
+        { $addToSet: { orderIds: orderId } },
+        { new: true }
+    ).lean();
+    return Boolean(taken);
+}
+
+/** Gives a seat back, for an order that never made it to the collection. */
+export async function releaseSlotSeat({ slotId, day, orderId }) {
+    await FoodDeliverySlotBooking.updateOne({ slotId, day }, { $pull: { orderIds: orderId } });
+}
+
 // ───────────────────────────── customer ─────────────────────────────
 
 /**
@@ -164,20 +326,11 @@ export async function getAvailableSlots({ date, now = new Date() } = {}) {
     const rows = await FoodDeliverySlot.find({ isActive: true }).sort({ sortOrder: 1, startTime: 1 }).lean();
     const forThisDay = rows.filter((s) => !s.daysOfWeek?.length || s.daysOfWeek.includes(weekday));
 
-    // One query for the whole day rather than one per slot.
-    const booked = forThisDay.some((s) => s.capacity)
-        ? await FoodOrder.aggregate([
-            {
-                $match: {
-                    'deliverySlot.slotId': { $in: forThisDay.map((s) => s._id) },
-                    scheduledAt: { $gte: day, $lt: new Date(day.getTime() + 86400000) },
-                    orderStatus: { $nin: ['cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'] }
-                }
-            },
-            { $group: { _id: '$deliverySlot.slotId', n: { $sum: 1 } } }
-        ])
-        : [];
-    const bookedBy = new Map(booked.map((b) => [String(b._id), b.n]));
+    // Reading is also when the ledger is repaired: cancelled orders give their
+    // seats back, and orders that took a window without claiming are adopted.
+    // Only capped windows are worth the work — nothing contends over the rest.
+    const capped = forThisDay.filter((s) => s.capacity).map((s) => s._id);
+    const bookedBy = await reconcileSeats(capped, day);
 
     const slots = forThisDay.map((slot) => {
         const starts = new Date(day);
@@ -234,6 +387,9 @@ export async function resolveSlotForOrder(slotId, { date, now = new Date() } = {
 
     return {
         scheduledAt: slot.deliveryAt,
+        /** The day and size of the window, so the caller can take a seat in it. */
+        day: startOfDay(slot.deliveryAt),
+        capacity: slot.capacity ?? null,
         deliverySlot: {
             slotId: new mongoose.Types.ObjectId(slot.id),
             // Snapshotted so a renamed or retired slot still reads correctly on
