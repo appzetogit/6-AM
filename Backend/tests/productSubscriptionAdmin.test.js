@@ -9,6 +9,7 @@ import { FoodProductSubscription } from '../src/modules/food/user/models/product
 import { FoodSubscriptionOccurrence } from '../src/modules/food/user/models/subscriptionOccurrence.model.js';
 import * as admin from '../src/modules/food/admin/services/productSubscriptionAdmin.service.js';
 import { getCustomerAddresses } from '../src/modules/food/admin/services/admin.service.js';
+import { createSlot, deactivateSlot } from '../src/modules/food/admin/services/deliverySlot.service.js';
 
 /**
  * Admin starting a subscription for a customer who phoned the shop.
@@ -321,5 +322,71 @@ describe('the address picker', () => {
     it('returns nothing for a customer who does not exist', async () => {
         assert.equal(await getCustomerAddresses(someId()), null);
         assert.equal(await getCustomerAddresses('not-an-id'), null);
+    });
+});
+
+describe('subscribing to a delivery slot', () => {
+    const makeSlot = (over = {}) =>
+        createSlot({ label: 'Morning 7-8', startTime: '07:00', endTime: '08:00', ...over });
+
+    it('takes the slot and records both its start time and its name', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id);
+        const customer = await makeCustomer();
+        const { slot } = await makeSlot();
+
+        const { subscription } = await admin.createSubscriptionForCustomer(
+            body(customer, milk, { deliveryTime: undefined, deliverySlotId: slot.id })
+        );
+
+        const stored = await FoodProductSubscription.findById(subscription.id).lean();
+        // deliveryTime carries the window's start, so the occurrence generator and
+        // the delivery board keep reading one field whether or not slots are used.
+        assert.equal(stored.deliveryTime, '07:00');
+        assert.equal(stored.deliverySlot.label, 'Morning 7-8');
+        assert.equal(stored.deliverySlot.endTime, '08:00');
+        assert.equal(String(stored.deliverySlot.slotId), slot.id);
+    });
+
+    it('still accepts a plain time, which is what the admin form has always sent', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id);
+        const customer = await makeCustomer();
+
+        const { subscription } = await admin.createSubscriptionForCustomer(
+            body(customer, milk, { deliveryTime: '06:30' })
+        );
+
+        const stored = await FoodProductSubscription.findById(subscription.id).lean();
+        assert.equal(stored.deliveryTime, '06:30');
+        assert.equal(stored.deliverySlot?.slotId ?? null, null);
+    });
+
+    it('asks for one or the other rather than saving a delivery with no time', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id);
+        const customer = await makeCustomer();
+
+        await expectError(
+            () => admin.createSubscriptionForCustomer(body(customer, milk, { deliveryTime: undefined })),
+            'delivery slot',
+            assert
+        );
+    });
+
+    it('refuses a slot that has been retired', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id);
+        const customer = await makeCustomer();
+        const { slot } = await makeSlot();
+        await deactivateSlot(slot.id);
+
+        await expectError(
+            () => admin.createSubscriptionForCustomer(
+                body(customer, milk, { deliveryTime: undefined, deliverySlotId: slot.id })
+            ),
+            'not available',
+            assert
+        );
     });
 });
