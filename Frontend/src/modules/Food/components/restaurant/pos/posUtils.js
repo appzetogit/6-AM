@@ -239,7 +239,16 @@ export const receiptHtml = (r, { title = "Invoice", held = false } = {}) => {
 
   // One line per tender, so a split bill shows how it was actually settled.
   const tenderLines = (pay.tenders || [])
-    .map((t) => `<tr><td>BY ${escapeHtml(String(TENDER_LABEL[t.mode] || t.mode).toUpperCase())}</td><td class="sep">:</td><td class="r">${money(t.amount, 2)}</td></tr>`)
+    .map((t) => {
+      const head = `<tr><td>BY ${escapeHtml(String(TENDER_LABEL[t.mode] || t.mode).toUpperCase())}</td><td class="sep">:</td><td class="r">${money(t.amount, 2)}</td></tr>`
+      // The card reference belongs on the customer's copy: it is what they
+      // quote back when they dispute the charge.
+      const ref = [t.cardHolder, t.transactionNo && `Txn ${t.transactionNo}`, t.customerBank]
+        .filter(Boolean)
+        .map(escapeHtml)
+        .join(" · ")
+      return ref ? `${head}<tr><td colspan="3" class="hsn">${ref}</td></tr>` : head
+    })
     .join("")
 
   const line = (label, value, bold = false) =>
