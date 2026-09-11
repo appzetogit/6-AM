@@ -2,6 +2,7 @@ import { sendResponse } from '../../../../utils/response.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import {
     quotePosOrder,
+    listPosCoupons,
     createPosOrder,
     recordPosPayment,
     searchPosCustomers,
@@ -21,6 +22,14 @@ const shopOf = (req) => req.user.userId;
 export const quotePosOrderController = async (req, res, next) => {
     try {
         return sendResponse(res, 200, 'Quote ready', await quotePosOrder(shopOf(req), req.body || {}));
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const listPosCouponsController = async (req, res, next) => {
+    try {
+        return sendResponse(res, 200, 'Coupons', await listPosCoupons(shopOf(req), req.body || {}));
     } catch (err) {
         next(err);
     }
