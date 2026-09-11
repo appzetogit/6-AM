@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from "react"
 import { X, ChevronDown, Pencil } from "lucide-react"
 import { restaurantAPI } from "@food/api"
-import PosModal, { btnDark, btnLight, inputCls } from "./PosModal"
+import PosNewCustomerModal from "./PosNewCustomerModal"
 
 /**
  * "Walk in Customer" — the customer picker.
  *
  * Empty means an anonymous walk-in. Typing digits looks a phone up anywhere;
  * typing letters looks a name up among this shop's own customers. The pencil
- * lets the cashier type a name and number for someone new, who is created
- * when the bill is saved, not before — an abandoned bill should leave no
- * ghost customer behind.
+ * opens the full customer record, which is saved on its own — someone who
+ * filled in a birthday and a GSTIN meant to create a customer, not to attach
+ * one to whatever bill happens to be open.
  */
 export default function PosCustomerBox({ customer, onChange }) {
   const [q, setQ] = useState("")
@@ -75,48 +75,12 @@ export default function PosCustomerBox({ customer, onChange }) {
       </button>
 
       {editing ? (
-        <EditCustomer
+        <PosNewCustomerModal
           initial={customer}
           onClose={() => setEditing(false)}
-          onSave={(c) => { onChange(c); setEditing(false); setQ("") }}
+          onSaved={(c) => { onChange(c); setEditing(false); setQ("") }}
         />
       ) : null}
     </div>
-  )
-}
-
-function EditCustomer({ initial, onClose, onSave }) {
-  const [name, setName] = useState(initial?.name || "")
-  const [phone, setPhone] = useState(initial?.phone || "")
-  const digits = phone.replace(/\D/g, "")
-  const valid = digits.length === 10
-
-  return (
-    <PosModal
-      title={initial?.id ? "Customer" : "New customer"}
-      onClose={onClose}
-      width="max-w-md"
-      footer={
-        <div className="flex justify-end gap-2">
-          <button type="button" className={btnLight} onClick={onClose}>Cancel</button>
-          <button type="button" className={btnDark} disabled={!valid} onClick={() => onSave({ id: initial?.id || null, name: name.trim(), phone: digits })}>
-            Save
-          </button>
-        </div>
-      }
-    >
-      <div className="space-y-3">
-        <label className="block">
-          <span className="mb-1 block text-xs text-gray-500">Name</span>
-          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Customer name" />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs text-gray-500">Mobile number</span>
-          <input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="10-digit mobile" inputMode="numeric" />
-          {!valid && phone ? <span className="mt-1 block text-xs text-red-500">Enter a 10-digit mobile number</span> : null}
-        </label>
-        {initial?.id ? <p className="text-xs text-gray-500">Existing customers are identified by phone; the name here is what prints on the bill.</p> : null}
-      </div>
-    </PosModal>
   )
 }
