@@ -1912,6 +1912,11 @@ export const restaurantAPI = {
     apiClient.get(`/food/restaurant/pos/orders/${String(orderId)}`, { contextModule: "restaurant" }),
   posRecordPayment: (orderId, body = {}) =>
     apiClient.post(`/food/restaurant/pos/orders/${String(orderId)}/payments`, body, { contextModule: "restaurant" }),
+  /** Is this number already somebody's? What the New Customer dialog's Verify asks. */
+  posLookupCustomer: (phone) =>
+    apiClient.get("/food/restaurant/pos/customers/lookup", { params: { phone }, contextModule: "restaurant" }),
+  posSaveCustomer: (body = {}) =>
+    apiClient.post("/food/restaurant/pos/customers", body, { contextModule: "restaurant" }),
   posSearchCustomers: (q, limit = 10) =>
     apiClient.get("/food/restaurant/pos/customers", { params: { q, limit }, contextModule: "restaurant" }),
   posCustomerSummary: (customerId) =>
