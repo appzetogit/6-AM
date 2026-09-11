@@ -13,7 +13,8 @@ import PosRightRail from "@food/components/restaurant/pos/PosRightRail"
 import PosHoldBillsModal from "@food/components/restaurant/pos/PosHoldBillsModal"
 import PosOrdersModal from "@food/components/restaurant/pos/PosOrdersModal"
 import PosPayScreen from "@food/components/restaurant/pos/PosPayScreen"
-import { PosCouponModal, PosChargesModal, PosTableModal } from "@food/components/restaurant/pos/PosSmallModals"
+import PosCouponModal from "@food/components/restaurant/pos/PosCouponModal"
+import { PosChargesModal, PosTableModal } from "@food/components/restaurant/pos/PosSmallModals"
 import { KEY_ACTIONS, lineDiscount, printReceipt, ORDER_TYPE_LABEL } from "@food/components/restaurant/pos/posUtils"
 
 const extractRestaurant = (response) =>
@@ -127,6 +128,13 @@ export default function PointOfSale() {
     roundOff,
     couponCode: couponCode || undefined,
   }), [orderType, tableNo, salesman, remarks, customer, cart.lines, flat, additionalCharges, roundOff, couponCode])
+
+  // Just the lines, memoised: the coupon list refetches when the cart changes,
+  // and a fresh array every render would make that an endless loop.
+  const couponItems = useMemo(
+    () => cart.lines.map((l) => ({ itemId: l.itemId, quantity: Number(l.quantity) || 1 })),
+    [cart.lines],
+  )
 
   const quoteTimer = useRef(null)
   useEffect(() => {
@@ -317,10 +325,28 @@ export default function PointOfSale() {
             />
           </div>
 
-          {orderType === "dine_in" ? (
-            <button type="button" onClick={() => setModal("table")} className="self-start rounded bg-sky-100 px-2 py-0.5 text-xs text-sky-800">
-              Table: {tableNo || "not set"} · change
-            </button>
+          {orderType === "dine_in" || couponCode ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {orderType === "dine_in" ? (
+                <button type="button" onClick={() => setModal("table")} className="rounded bg-sky-100 px-2 py-0.5 text-xs text-sky-800">
+                  Table: {tableNo || "not set"} · change
+                </button>
+              ) : null}
+              {/* A coupon can stop applying after it was picked — the cashier
+                  removes a line and the bill drops below its minimum. The strip
+                  would just show no discount, so say which it is. */}
+              {couponCode ? (
+                <button
+                  type="button"
+                  onClick={() => setModal("coupon")}
+                  className={`rounded px-2 py-0.5 text-xs ${couponApplied ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}
+                >
+                  {couponApplied
+                    ? `${couponCode} · −₹${quote?.pricing?.discount ?? 0}`
+                    : `${couponCode} no longer applies · change`}
+                </button>
+              ) : null}
+            </div>
           ) : null}
 
           <div className="flex min-h-0 flex-1 flex-col rounded border border-gray-200 bg-white">
@@ -368,7 +394,14 @@ export default function PointOfSale() {
         />
       ) : null}
       {modal === "coupon" ? (
-        <PosCouponModal current={couponCode} applied={couponApplied} onClose={() => setModal(null)} onApply={(code) => { setCouponCode(code); setModal(null) }} />
+        <PosCouponModal
+          current={couponCode}
+          invoiceBalance={quote?.pricing?.total ?? 0}
+          items={couponItems}
+          customerId={customer?.id}
+          onClose={() => setModal(null)}
+          onApply={(code) => { setCouponCode(code); setModal(null) }}
+        />
       ) : null}
       {modal === "charges" ? (
         <PosChargesModal current={additionalCharges} onClose={() => setModal(null)} onApply={(n) => { setAdditionalCharges(n); setModal(null) }} />
