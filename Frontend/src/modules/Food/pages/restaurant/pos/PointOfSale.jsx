@@ -224,39 +224,20 @@ export default function PointOfSale() {
     if (!cart.lines.length || busy) return
     setBusy(true)
     try {
-      const estimatedTotal = quote?.pricing?.total ?? Math.max(0, cart.totals.gross - cart.totals.lineDiscount)
-      await restaurantAPI.posHold({
-        ...billInput(),
-        items: cart.lines.map((l) => ({ itemId: l.itemId, name: l.name, price: l.price, quantity: Number(l.quantity) || 1, discount: lineDiscount(l) })),
-        estimatedTotal,
-      })
-      if (print) {
-        printReceipt(
-          {
-            billNo: "HOLD",
-            createdAt: new Date(),
-            orderType,
-            orderTypeLabel: ORDER_TYPE_LABEL[orderType],
-            tableNo,
-            salesman,
-            remarks,
-            store: restaurant ? { name: restaurant.restaurantName, address: [restaurant.addressLine1, restaurant.city].filter(Boolean).join(", "), phone: restaurant.ownerPhone } : null,
-            customer: { name: customer?.name || "Walk in Customer", phone: customer?.phone || "" },
-            items: (quote?.items || cart.lines.map((l) => ({ name: l.name, quantity: l.quantity, price: l.price, discount: lineDiscount(l), amount: l.price * l.quantity - lineDiscount(l) }))),
-            pricing: quote?.pricing || { subtotal: cart.totals.gross, total: estimatedTotal, discount: cart.totals.lineDiscount },
-            payment: {},
-          },
-          { title: "Held bill", held: true },
-        )
-      }
-      toast.success("Bill held")
+      // The slip comes back from the server rather than being assembled here:
+      // it is priced by the same engine the sale will use, so the paper in the
+      // customer's hand and the totals strip they just watched agree.
+      const res = await restaurantAPI.posHold(billInput())
+      const { held, receipt } = res?.data?.data || {}
+      if (print && receipt) printReceipt(receipt, { title: "Hold Bill", held: true })
+      toast.success(held?.holdNo ? `Bill held as ${held.holdNo}` : "Bill held")
       resetBill()
     } catch (err) {
       toast.error(errMsg(err, "Could not hold the bill"))
     } finally {
       setBusy(false)
     }
-  }, [cart, busy, quote, billInput, orderType, tableNo, salesman, remarks, restaurant, customer, resetBill])
+  }, [cart.lines.length, busy, billInput, resetBill])
 
   const resumeHeld = useCallback((held) => {
     if (!held) return
