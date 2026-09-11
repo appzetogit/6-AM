@@ -240,6 +240,56 @@ describe('a counter sale', () => {
         );
     });
 
+    it('charges the bill the till showed, percentage discount and all', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 99, gstRate: 12 });
+
+        const bill = {
+            items: [line(milk, 2)],                       // 198
+            flatDiscount: { type: 'percent', value: 10 }, // 19.80 off
+            paymentMode: 'cash'
+        };
+
+        // What the cashier reads off the strip.
+        const quoted = await pos.quotePosOrder(shop._id, bill);
+        assert.equal(quoted.pricing.manualDiscount, 19.8);
+
+        const { order } = await pos.createPosOrder(shop._id, bill);
+        const saved = await FoodOrder.findById(order._id).lean();
+
+        // A percentage flat discount used to be honoured by the quote and
+        // dropped on the way in: the order came out at 222 against a till
+        // showing 199.20, and the 199.20 taken marked it settled in full.
+        assert.equal(saved.pricing.manualDiscount, 19.8, 'the discount survives the write');
+        assert.equal(
+            saved.pricing.total, quoted.pricing.total,
+            'the bill on the record is the bill on the screen'
+        );
+        assert.equal(saved.pos.tenders[0].amount, quoted.pricing.total);
+        assert.equal(saved.pos.dueAmount, 0);
+        assert.equal(saved.payment.status, 'paid');
+    });
+
+    it('leaves a visible balance rather than quiet money if the two ever disagree', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 100, gstRate: 0 });
+
+        // Stand in for any future drift between quote and write by tendering
+        // less than the bill through the split path, which is the same shape
+        // the dropped-discount bug produced.
+        const { order } = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 2)],                       // ₹200
+            customerPhone: '9899999999',
+            paymentMode: 'multiple',
+            tenders: [{ mode: 'cash', amount: 180 }]
+        });
+        const saved = await FoodOrder.findById(order._id).lean();
+        assert.equal(saved.pricing.total, 200);
+        assert.equal(saved.pos.dueAmount, 20, 'the shortfall is owed, not absorbed');
+        assert.equal(saved.payment.amountDue, 20);
+        assert.equal(saved.payment.status, 'cod_pending', 'and the bill is not called settled');
+    });
+
     it('keeps the card details the counter captured', async () => {
         const shop = await makeShop();
         const milk = await makeProduct(shop._id, { price: 100, gstRate: 0 });
@@ -628,11 +678,13 @@ describe('adding a customer at the counter', () => {
 
         const walkIn = await FoodUser.findOne({ phone: /^pos-walkin-/ }).lean();
         assert.ok(walkIn, 'the stand-in exists');
-        // Its "phone" is pos-walkin-<id>, which no 10-digit lookup can equal —
-        // the stand-in is unreachable by number by construction, and the
-        // isWalkInPhone guard in the lookup is the belt to that pair of braces.
-        assert.equal(digitsOnly(walkIn.phone).length === 10, false);
+        // Its "phone" is pos-walkin-<id>, so it can never equal a ten-digit
+        // number however the id's hex falls — the stand-in is unreachable by
+        // number by construction, and the isWalkInPhone guard in the lookup is
+        // the belt to that pair of braces.
+        assert.ok(walkIn.phone.startsWith('pos-walkin-'));
         await expectError(() => pos.lookupPosCustomer(walkIn.phone), '10-digit', assert);
+        assert.equal((await pos.lookupPosCustomer(digitsOnly(walkIn.phone).padEnd(10, '0').slice(0, 10))).exists, false);
     });
 });
 
