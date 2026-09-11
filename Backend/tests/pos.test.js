@@ -587,12 +587,11 @@ describe('held bills', () => {
         const shop = await makeShop();
         const milk = await makeProduct(shop._id, { price: 50, stockQty: 5 });
 
-        const held = await pos.holdPosBill(shop._id, {
+        const { held } = await pos.holdPosBill(shop._id, {
             items: [{ itemId: String(milk._id), name: 'Milk', price: 50, quantity: 2 }],
             orderType: 'dine_in',
             tableNo: 'T4',
-            customerName: 'Asha',
-            estimatedTotal: 100
+            customerName: 'Asha'
         });
         assert.equal((await FoodItem.findById(milk._id).lean()).stockQty, 5, 'a hold is not a sale');
         assert.equal(held.tableNo, 'T4');
@@ -608,5 +607,82 @@ describe('held bills', () => {
         await expectError(() => pos.takeHeldBill(shop._id, held._id), 'Held bill not found', assert);
 
         await expectError(() => pos.holdPosBill(shop._id, { items: [] }), 'nothing on the bill', assert);
+    });
+
+    it('numbers each hold in sequence, per shop', async () => {
+        const shop = await makeShop();
+        const other = await makeShop({ restaurantName: 'Other', ownerPhone: '9000000002', phone: '9000000002' });
+        const milk = await makeProduct(shop._id, { price: 50 });
+        const theirs = await makeProduct(other._id, { price: 50 });
+
+        const first = await pos.holdPosBill(shop._id, { items: [line(milk)] });
+        const second = await pos.holdPosBill(shop._id, { items: [line(milk, 2)] });
+        const elsewhere = await pos.holdPosBill(other._id, { items: [line(theirs)] });
+
+        assert.equal(first.held.holdNo, 'HOLD1');
+        assert.equal(second.held.holdNo, 'HOLD2', 'the number a cashier reads out to find it again');
+        assert.equal(elsewhere.held.holdNo, 'HOLD1', 'another shop counts its own');
+    });
+
+    it('prices the slip through the real engine, and prints it as not a sale', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { name: 'Milk', price: 100, gstRate: 5 });
+        const coffee = await makeProduct(shop._id, { name: 'Coffee', price: 100, gstRate: 12 });
+
+        const { receipt } = await pos.holdPosBill(shop._id, {
+            items: [line(milk, 2), line(coffee, 1, { discount: 10 })],
+            salesman: 'Testing',
+            flatDiscount: { type: 'flat', value: 20 }
+        });
+
+        assert.equal(receipt.billNo, 'HOLD1');
+        assert.equal(receipt.salesman, 'Testing', 'the cashier is named on the slip');
+        assert.equal(receipt.pricing.subtotal, 300);
+        assert.equal(receipt.pricing.discount, 30, 'the line discount and the flat one together');
+        assert.equal(receipt.totalQuantity, 3, 'pieces purchased');
+        assert.equal(receipt.discountedLines, 1, 'discount items');
+
+        // Nothing has been taken, and the slip has to be unmistakable about it.
+        assert.deepEqual(receipt.payment.tenders, []);
+        assert.equal(receipt.payment.tendered, 0);
+        assert.equal(receipt.payment.status, 'held');
+
+        assert.deepEqual(receipt.taxSummary.map((t) => t.rate), [5, 12]);
+        assert.equal(
+            round(receipt.taxSummary.reduce((s, t) => s + t.cgst + t.sgst, 0)),
+            receipt.pricing.tax,
+            'a parked bill still has to add up'
+        );
+
+        // And the stored snapshot matches what was printed, so a reprint agrees.
+        const saved = await FoodPosHeldBill.findById(receipt.id).lean();
+        assert.equal(saved.pricing.total, receipt.pricing.total);
+        assert.equal(saved.items[0].gstRate, 5, 'the slab is snapshotted for the tax summary');
+    });
+
+    it('reprints a parked slip without disturbing the hold', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 50 });
+        const { held } = await pos.holdPosBill(shop._id, { items: [line(milk, 2)] });
+
+        const again = await pos.getHeldBillReceipt(shop._id, held._id);
+        assert.equal(again.billNo, held.holdNo);
+        assert.equal(again.pricing.total, held.pricing.total);
+        assert.equal(await FoodPosHeldBill.countDocuments({}), 1, 'reprinting is not resuming');
+
+        await expectError(() => pos.getHeldBillReceipt(someId(), held._id), 'Held bill not found', assert);
+    });
+
+    it('prices the slip from the catalogue, not from what the client claimed', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 50 });
+
+        const { receipt } = await pos.holdPosBill(shop._id, {
+            // A client sending its own price must not be able to set the slip's.
+            items: [{ itemId: String(milk._id), quantity: 2, name: 'Free Milk', price: 1 }]
+        });
+        assert.equal(receipt.items[0].price, 50);
+        assert.equal(receipt.items[0].name, 'Milk');
+        assert.equal(receipt.pricing.total, 100);
     });
 });
