@@ -562,6 +562,12 @@ export async function createOrder(userId, dto) {
         couponCode: dto.pricing?.couponCode || undefined,
         deliveryMode: dto.deliveryMode || "basic",
         manualDiscount: pos ? Number(dto.pricing?.manualDiscount) || 0 : 0,
+        // Forwarded with the rest of them. It was not, and a flat discount
+        // entered as a percentage was honoured by the quote the cashier read
+        // and dropped when the order was written — the bill on the record came
+        // out higher than the one on the screen, and the till had already taken
+        // the lower amount and marked it settled.
+        manualDiscountPercent: pos ? Number(dto.pricing?.manualDiscountPercent) || 0 : 0,
         additionalCharges: pos ? Number(dto.pricing?.additionalCharges) || 0 : 0,
         roundOff: Boolean(pos) && dto.pricing?.roundOff === true,
       },
