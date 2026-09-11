@@ -6,6 +6,8 @@ import {
     createPosOrder,
     recordPosPayment,
     searchPosCustomers,
+    lookupPosCustomer,
+    savePosCustomer,
     getPosCustomerSummary,
     getLastPosBill,
     getPosBill,
@@ -59,6 +61,22 @@ export const recordPosPaymentController = async (req, res, next) => {
 export const searchPosCustomersController = async (req, res, next) => {
     try {
         return sendResponse(res, 200, 'Customers', await searchPosCustomers(shopOf(req), req.query.q, req.query.limit));
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const lookupPosCustomerController = async (req, res, next) => {
+    try {
+        return sendResponse(res, 200, 'Lookup', await lookupPosCustomer(req.query.phone));
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const savePosCustomerController = async (req, res, next) => {
+    try {
+        return sendResponse(res, 200, 'Customer saved', await savePosCustomer(req.body || {}));
     } catch (err) {
         next(err);
     }
