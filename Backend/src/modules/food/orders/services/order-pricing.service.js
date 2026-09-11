@@ -87,6 +87,26 @@ export function assertRestaurantOpenForOrdering(restaurant, at = new Date()) {
 }
 
 /**
+ * The operational half of the check above, without the clock.
+ *
+ * A delivery window the platform publishes is not measured against counter
+ * hours — an early round exists precisely because the counter is shut then.
+ * But a shop that has paused orders, or been switched off by the admin, is not
+ * taking bookings for later either: being closed for the day has to stop a 7am
+ * booking the same way it stops one for right now.
+ */
+export function assertRestaurantAcceptingOrders(restaurant) {
+  const availability = getRestaurantAvailabilityStatus(restaurant);
+  if (availability.isActive === false) {
+    throw new ValidationError('Store is currently closed. Please try again later.');
+  }
+  if (availability.isAcceptingOrders === false) {
+    throw new ValidationError('Store is currently offline. Please try again later.');
+  }
+  return availability;
+}
+
+/**
  * Single source of truth for restaurant ↔ customer trip distance.
  * Prefer Google driving/road km (matches delivery partner Rest→User UI);
  * fall back to Haversine when Directions is unavailable.
