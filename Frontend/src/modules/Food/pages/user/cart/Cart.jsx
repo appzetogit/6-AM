@@ -519,9 +519,15 @@ export default function Cart() {
 
   const cartRestaurantAvailability = useMemo(() => {
     if (!restaurantData) return { isOpen: false, reason: "loading" }
+    // A window the shop publishes is its statement that it delivers then — the
+    // 7am round exists precisely because the counter is shut at 7am. Judging a
+    // booked window against opening hours made every early slot pickable but
+    // unorderable: the customer chose it and the button turned into "Offline"
+    // with nothing to say why. Counter hours still gate ordering for right now.
+    if (selectedSlotId) return { isOpen: true, reason: "slot" }
     const targetDate = scheduledOrderAt || new Date(availabilityTick)
     return getRestaurantAvailabilityStatus(restaurantData, targetDate)
-  }, [restaurantData, availabilityTick, scheduledOrderAt])
+  }, [restaurantData, availabilityTick, scheduledOrderAt, selectedSlotId])
 
   const canPlaceOrder = Boolean(restaurantData) && cartRestaurantAvailability.isOpen === true
 
