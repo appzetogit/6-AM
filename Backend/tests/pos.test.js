@@ -61,6 +61,9 @@ const makeProduct = (restaurantId, over = {}) =>
 
 const line = (product, quantity = 1, extra = {}) => ({ itemId: String(product._id), quantity, ...extra });
 
+/** Sums of rounded halves need rounding again before comparing to a total. */
+const round = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
 describe('quote', () => {
     it('prices a counter sale with no delivery or platform fee', async () => {
         const shop = await makeShop();
@@ -427,6 +430,81 @@ describe('bills', () => {
         assert.equal(scanned.id, String(second._id), 'the printed bill number finds it too');
         await expectError(() => pos.getPosBill(shop._id, 'NOPE-1'), 'Bill not found', assert);
         await expectError(() => pos.getPosBill(someId(), second._id), 'Bill not found', assert);
+    });
+});
+
+describe('the printed bill', () => {
+    it('carries what was tendered and what went back', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 50, gstRate: 0 });
+
+        const exact = await pos.createPosOrder(shop._id, { items: [line(milk, 2)], paymentMode: 'cash' });
+        assert.equal(exact.receipt.payment.tendered, 100);
+        assert.equal(exact.receipt.payment.changeGiven, 0);
+        assert.equal(exact.receipt.totalQuantity, 2, 'NO OF QTY counts units, not lines');
+
+        const withChange = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 1)], paymentMode: 'multiple', tenders: [{ mode: 'cash', amount: 500 }]
+        });
+        assert.equal(withChange.receipt.pricing.total, 50);
+        assert.equal(withChange.receipt.payment.tendered, 500, 'what the customer handed over');
+        assert.equal(withChange.receipt.payment.changeGiven, 450, 'and what went back');
+    });
+
+    it('splits GST per slab and adds up to the tax actually charged', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { name: 'Milk', price: 100, gstRate: 5 });
+        const coffee = await makeProduct(shop._id, { name: 'Coffee', price: 100, gstRate: 12 });
+
+        const { receipt } = await pos.createPosOrder(shop._id, { items: [line(milk, 2), line(coffee, 1)] });
+        const summary = receipt.taxSummary;
+
+        assert.deepEqual(summary.map((s) => s.rate), [5, 12], 'one row per slab, lowest first');
+        assert.equal(summary[0].taxableValue, 200);
+        assert.equal(summary[1].taxableValue, 100);
+
+        // Prices here are exclusive of GST, so the taxable value is the line
+        // value itself — not the line value with tax backed out of it.
+        assert.equal(
+            round(summary.reduce((sum, s) => sum + s.taxableValue, 0)),
+            receipt.pricing.subtotal,
+            'taxable values must account for the whole subtotal'
+        );
+        assert.equal(
+            round(summary.reduce((sum, s) => sum + s.cgst + s.sgst, 0)),
+            receipt.pricing.tax,
+            'the summary has to add up to the tax on the bill — it is a filed document'
+        );
+        assert.ok(summary.every((s) => s.cgst === s.sgst), 'an intra-state sale splits in half');
+        assert.ok(summary.every((s) => s.igst === 0));
+    });
+
+    it('shrinks the taxable base when a discount is given', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 100, gstRate: 5 });
+
+        const { receipt } = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 4)], // 400
+            flatDiscount: { type: 'flat', value: 100 }
+        });
+        assert.equal(receipt.pricing.discount, 100);
+        assert.equal(
+            round(receipt.taxSummary.reduce((sum, s) => sum + s.taxableValue, 0)),
+            300,
+            'tax is charged on what was actually paid for the goods'
+        );
+        assert.equal(
+            round(receipt.taxSummary.reduce((sum, s) => sum + s.cgst + s.sgst, 0)),
+            receipt.pricing.tax
+        );
+    });
+
+    it('names the place of supply from the store', async () => {
+        const shop = await makeShop({ gstNumber: '29AAACT1234A1Z5' });
+        const milk = await makeProduct(shop._id);
+        const { receipt } = await pos.createPosOrder(shop._id, { items: [line(milk)] });
+        assert.equal(receipt.store.state, 'Karnataka');
+        assert.equal(receipt.store.gstNumber, '29AAACT1234A1Z5');
     });
 });
 
