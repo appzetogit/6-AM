@@ -5,6 +5,7 @@ import { orderAPI } from "@food/api"
 import { useCart } from "@food/context/CartContext"
 import { toast } from "sonner"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
+import { getBookedFor, getBookedForLabel, getTimeRemaining } from "@food/hooks/useActiveOrderTracking"
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
 const debugError = (...args) => { }
@@ -57,6 +58,10 @@ export default function Orders() {
       String(order.status).toLowerCase().includes('cancel')) {
       return null
     }
+
+    // A booking runs to its window; anything else to the ETA from when it was
+    // placed. Shared with the tracking screens rather than worked out again.
+    if (getBookedFor(order)) return getTimeRemaining(order)
 
     const createdAt = new Date(order.createdAt)
     const now = new Date()
@@ -977,6 +982,12 @@ Order again from this restaurant in the ${companyName} app.`
                 <div className="px-4 py-2 flex items-center justify-between">
                   <div className="flex-1">
                     <p className="text-xs text-gray-400">Order placed on {formatDate(order.createdAt)}</p>
+                    {/* When they booked a window, that is the date that matters. */}
+                    {getBookedForLabel(order) && (
+                      <p className="text-xs font-medium text-indigo-600 mt-0.5">
+                        Arriving {getBookedForLabel(order)}
+                      </p>
+                    )}
                     {order.deliveredAt && (
                       <p className="text-xs text-gray-400 mt-0.5">Delivered on {formatDate(order.deliveredAt)}</p>
                     )}
