@@ -95,6 +95,49 @@ You also need an `addressId` — from `GET /food/user/addresses`.
 
 ---
 
+### 3.0 Delivery slots
+
+`GET /food/restaurant/delivery-slots?date=YYYY-MM-DD` → **200**. No auth: whether the
+shop delivers at 7am is part of deciding whether to order at all.
+
+```json
+{
+  "data": {
+    "date": "2026-09-12T00:00:00.000Z",
+    "slots": [
+      {
+        "id": "6aa3d665eb870c2dba072917",
+        "label": "Morning 7-8 AM",
+        "startTime": "07:00",
+        "endTime": "08:00",
+        "cutoffMinutes": 60,
+        "capacity": null,
+        "daysOfWeek": [],
+        "deliveryAt": "2026-09-12T01:30:00.000Z",
+        "ordersClose": "2026-09-12T00:30:00.000Z",
+        "booked": 1,
+        "available": true,
+        "reason": ""
+      }
+    ]
+  }
+}
+```
+
+**Show every slot returned, including the unavailable ones.** A slot that cannot be
+taken comes back with `available: false` and a `reason` — `"Orders for this slot have
+closed"` or `"This slot is full"` — and the reason is meant to be on screen. A list
+that silently omits the 7am window teaches the customer the shop does not deliver then;
+told that orders for it closed, they come back tomorrow. Render unavailable slots
+greyed out and untappable, with the reason under the times.
+
+`daysOfWeek` is empty for a slot that runs every day, otherwise `0`=Sunday … `6`=Saturday.
+`capacity: null` means uncapped. Omit `date` to get today.
+
+**Instant is not a slot.** An order placed with no slot goes out immediately, on the
+path it always took — do not invent an "Instant" entry in this list; it is a separate
+choice above it.
+
 ### 3.1 Create a subscription
 
 `POST /food/user/subscriptions` → **201**
@@ -106,7 +149,7 @@ You also need an `addressId` — from `GET /food/user/addresses`.
   "variantId": "",
   "quantity": 1,
   "frequency": "daily",
-  "deliveryTime": "06:30",
+  "deliverySlotId": "6aa3d665eb870c2dba072917",
   "startDate": "2026-09-10",
   "addressId": "6a9ea215db9969e6a81adecf",
   "paymentMethod": "cash"
@@ -122,7 +165,8 @@ You also need an `addressId` — from `GET /food/user/addresses`.
 | `frequency` | enum | ✅ | `daily` \| `weekly` \| `monthly` |
 | `daysOfWeek` | int[] | only when `weekly` | `0`=Sunday … `6`=Saturday |
 | `dayOfMonth` | int 1–28 | only when `monthly` | Capped at 28 so every month is valid |
-| `deliveryTime` | string | ✅ | `"HH:mm"`, 24-hour. Regex-validated |
+| `deliverySlotId` | string | one of the two | A window from `GET /food/restaurant/delivery-slots`. Preferred — the app should show windows, not a clock |
+| `deliveryTime` | string | one of the two | `"HH:mm"`, 24-hour. Regex-validated. Still accepted, for shops with no slots configured |
 | `startDate` | string | ✅ | Any parseable date. **Cannot be in the past** |
 | `addressId` | string | ✅ | Must be one of the user's saved addresses |
 | `paymentMethod` | enum | — | `cash` \| `razorpay` \| `wallet`. Defaults to `cash` |
@@ -334,10 +378,45 @@ failed delivery). If the app needs them, that is a backend change — ask first.
 
 ---
 
+## 5b. Booking a slot on a one-off order
+
+`POST /food/orders` takes the same windows:
+
+| Field | Type | Notes |
+|---|---|---|
+| `deliverySlotId` | string | The slot the customer picked |
+| `deliveryDate` | string | `YYYY-MM-DD`, the day it is for |
+
+Send the **slot id, not a timestamp**. The server derives the delivery time from the
+window and re-checks it is still open — the list on screen may be some minutes old by
+the time the payment goes through, and a window can close or fill in between. A refusal
+comes back as `400` with the same wording the list uses (`"Orders for this slot have
+closed"`, `"This slot is full"`), so it can be shown as-is.
+
+Omit both fields for an instant order. The created order then has `scheduledAt: null`
+and an empty `deliverySlot` — unchanged from before slots existed.
+
+A slot-booked order carries the window back on the order object:
+
+```json
+"scheduledAt": "2026-09-12T01:30:00.000Z",
+"deliverySlot": {
+  "slotId": "6aa3d665eb870c2dba072917",
+  "label": "Morning 7-8 AM",
+  "startTime": "07:00",
+  "endTime": "08:00"
+}
+```
+
+It is a snapshot: renaming or retiring the slot later does not rewrite what a placed
+order says.
+
+---
+
 ## 6. Verified against
 
 Every endpoint, request shape, response shape and error message in this document was
-exercised against a running backend rather than read off the source. Twelve checks,
+exercised against a running backend rather than read off the source. Twenty-two checks,
 all passing:
 
 | # | Check | Result |
@@ -354,6 +433,16 @@ all passing:
 | 10 | Resume does **not** restore them | still 0 scheduled |
 | 11 | Empty PATCH body rejected | `No fields to update` |
 | 12 | Cancelling on the delivery day | `Too late to cancel …` |
+| 13 | Slot list for today | past window returned with `Orders for this slot have closed` |
+| 14 | Same window for tomorrow | `available: true` — today's cut-off does not apply |
+| 15 | Order with no slot | 201, `scheduledAt: null`, empty `deliverySlot` |
+| 16 | Order into tomorrow's 7–8am | 201, `scheduledAt` 07:00 local, window snapshotted |
+| 17 | Order into a closed window | 400 `Orders for this slot have closed` |
+| 18 | Third order into a 2-order window | 400 `This slot is full`, list shows `booked 2/2` |
+| 19 | Subscription with `deliverySlotId` | stored window, `deliveryTime` set to `07:00` |
+| 20 | Subscription with `deliveryTime` only | still accepted, no window recorded |
+| 21 | Subscription with neither | `Pick a delivery slot` |
+| 22 | Order from a due occurrence | carries the subscribed window, timed to its start |
 
 Checks 9 and 10 are the ones most likely to look like a bug in the app. They are the
 documented behaviour.
