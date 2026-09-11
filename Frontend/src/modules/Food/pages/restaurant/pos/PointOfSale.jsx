@@ -358,7 +358,10 @@ export default function PointOfSale() {
             value={remarks}
             onChange={(e) => setRemarks(e.target.value)}
             placeholder="Remarks"
-            className="h-10 w-full rounded border border-gray-300 bg-white px-3 text-[15px] outline-none placeholder:text-gray-500 focus:border-sky-400"
+            // Blue-bordered rather than grey: it is the one free-text field on
+            // a screen of figures, and the cashier has to be able to find it
+            // without hunting.
+            className="h-10 w-full rounded border-2 border-sky-400 bg-white px-3 text-[15px] outline-none placeholder:text-gray-500 focus:border-sky-500"
           />
 
           <PosTotalsStrip
