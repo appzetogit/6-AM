@@ -2,17 +2,14 @@ import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Wifi, WifiOff, Printer, Settings, Cloud, Trash2, Maximize2, Minimize2, X, LogOut, PanelLeft, Headset } from "lucide-react"
 import { getCompanyName, getModuleLogoUrl } from "@food/utils/businessSettings"
-import { ORDER_TYPES } from "./posUtils"
 
 const iconBtn = "rounded p-1.5 text-gray-600 hover:bg-white/70 hover:text-gray-900 disabled:opacity-40"
 
 /**
- * The strip across the top of the till: how the order is being taken, who is
- * ringing it up, and the row of utility icons on the right.
+ * The strip across the top of the till: who is ringing the sale up, and the
+ * row of utility icons on the right.
  */
 export default function PosTopBar({
-  orderType,
-  onOrderType,
   salesman,
   salesmen,
   onSalesman,
@@ -50,10 +47,9 @@ export default function PosTopBar({
   }
 
   return (
-    // Wraps to a second line rather than squeezing everything on one. This bar
-    // carries a lot, and a flex row that cannot fit compresses its children
-    // instead of breaking — which is what turned the order-type pills into a
-    // vertical stack on anything under a 1400px window.
+    // Wraps to a second line rather than squeezing everything on one: a flex
+    // row that cannot fit compresses its children instead of breaking, and the
+    // squeezed result is worse than a second line.
     <header className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-[#eaf1f8] px-3 py-1.5 text-sm">
       <button type="button" className={iconBtn} onClick={() => navigate("/seller/dashboard")} title="Back to dashboard">
         <PanelLeft size={18} />
@@ -64,39 +60,13 @@ export default function PosTopBar({
         <span className="text-xl font-extrabold tracking-tight text-[#2b3a67]">{companyName}<span className="text-sky-500">.</span></span>
       </div>
 
-      {/* Pills rather than radios, matching the Orders page's status tabs — the
-          same choice-of-one control, and the one the panel already uses.
-          Buttons carry the radio roles themselves so dropping the real inputs
-          does not drop what a screen reader is told. */}
-      {/* shrink-0 and no wrap: these four stay side by side or the bar wraps
-          around them. Squeezed, they stack one per line and eat the screen. */}
-      <div className="flex shrink-0 items-center gap-2" role="radiogroup" aria-label="Order type">
-        {ORDER_TYPES.map((t) => {
-          const active = orderType === t.value
-          return (
-            <button
-              key={t.value}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              onClick={() => onOrderType(t.value)}
-              className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                active ? "bg-[#FA0272] text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              {t.label}
-            </button>
-          )
-        })}
-      </div>
-
       <div className="flex items-center gap-2">
         <span className="text-[15px] text-gray-800">Salesman:</span>
         <select
           value={salesman}
           onChange={(e) => onSalesman(e.target.value)}
-          // The one field that can give way before the bar wraps — a salesman
-          // name truncates legibly, a pill cut in half does not.
+          // The one field allowed to give way before the bar wraps — a
+          // truncated name is still readable.
           className="h-8 w-[180px] min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 text-sm text-gray-700 outline-none"
         >
           {salesmen.map((s) => (
