@@ -221,6 +221,22 @@ And one thing a booking allows that an ordinary order does not:
   call still returns `Order cannot be cancelled`. Cancelling frees the place the
   booking held in its window.
 
+### On the customer's screen
+
+A booking is a live order — it belongs in the orders list and on any "current order"
+surface — but it is not in progress, and the usual treatment reads as broken:
+
+- **Count down to `scheduledAt`, not to `createdAt` plus an ETA.** An ETA derived from
+  when the order was placed shows tomorrow's round as arriving in minutes and then as
+  permanently overdue.
+- **Say when it is coming, not "Preparing your order".** Nothing is being cooked until
+  the window is close. `deliverySlot.startTime`/`endTime` are what the customer was
+  promised — "Arriving Tomorrow, 07:00–08:00".
+- **Do not render hours as a minute count.** A booking is hundreds of minutes out;
+  show the window time instead.
+
+Refunds are unaffected: cancelling a booking refunds in full, with no time-based fee.
+
 ### Errors
 
 | Status | `message` | Cause |
@@ -475,6 +491,10 @@ UI and the result read back out of the database.
 | 47 | Cancelling a confirmed instant order beside it | still `Order cannot be cancelled` | dev script |
 | 48 | Cancelling a booking a rider is already on | refused | tests |
 | 49 | Cancelling a booking whose window has opened | refused | tests |
+| 50 | Tracking text and countdown for a booking | `Arriving Tomorrow, 07:00–08:00`, 849 min to the window | browser |
+| 51 | Same for an instant order beside it | `Order confirmed`, 34 min — unchanged | browser |
+| 52 | Rider-facing clocks on a booking | all start at dispatch, which is deferred to the window | code read |
+| 53 | Refund on a cancelled booking | full amount, no elapsed-time fee | code read |
 
 Backend suite at the time of writing: 201 tests, all passing
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
