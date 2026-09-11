@@ -61,9 +61,41 @@ const getAcceptanceWindowSeconds = (orderLike) => {
 };
 
 const formatTime = (seconds) => {
-  const mins = Math.floor(seconds / 60);
+  const hours = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
+  // A booking's clock runs to the start of its window, which can be hours off.
+  // Without this, seven hours rendered as "420:00".
+  if (hours > 0) {
+    return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  }
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+};
+
+/**
+ * The window a booking was placed for, as a line of context on the card.
+ *
+ * A booking only reaches this card half an hour before its window, so the
+ * countdown beside it is real and stays. What the countdown cannot say is what
+ * the customer was actually promised — "7:00-8:00, Morning 7-8 AM" — which is
+ * what the seller is packing to.
+ */
+const bookedWindow = (orderLike) => {
+  const at = orderLike?.scheduledAt ? new Date(orderLike.scheduledAt) : null;
+  if (!at || Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) return null;
+
+  const slot = orderLike?.deliverySlot;
+  const day = at.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const sameDay = (a, b) => a.toDateString() === b.toDateString();
+  const when = sameDay(at, today) ? "Today" : sameDay(at, tomorrow) ? "Tomorrow" : day;
+
+  if (slot?.label && slot?.startTime && slot?.endTime) {
+    return `${when}, ${slot.startTime}–${slot.endTime} · ${slot.label}`;
+  }
+  return `${when}, ${at.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`;
 };
 
 /**
@@ -114,6 +146,7 @@ export default function NewOrderAcceptCard({
 
   const cookingNote = getRestaurantCookingNote(order);
   const isExpired = countdown <= 0;
+  const bookedFor = bookedWindow(order);
 
   const getSliderMetrics = () => {
     const sliderWidth = acceptSliderRef.current?.offsetWidth || 320;
@@ -364,6 +397,17 @@ export default function NewOrderAcceptCard({
               </p>
             </div>
           </div>
+
+          {/* What the customer was promised. The countdown says how long the
+              seller has to accept; this says what they are packing to. */}
+          {bookedFor ? (
+            <div className="flex items-center justify-between bg-indigo-50/60 p-4 rounded-[20px] border border-indigo-100/60 mb-3">
+              <span className="text-[10px] font-black text-indigo-700 uppercase tracking-widest">
+                Booked for
+              </span>
+              <span className="text-sm font-black text-indigo-700 text-right">{bookedFor}</span>
+            </div>
+          ) : null}
 
           <div className="flex items-center justify-between bg-emerald-50/50 p-4 rounded-[20px] border border-emerald-100/50">
             <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">
