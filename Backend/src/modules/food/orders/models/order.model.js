@@ -205,7 +205,20 @@ const posTenderSchema = new mongoose.Schema(
         mode: { type: String, enum: ['cash', 'upi', 'card'], required: true },
         amount: { type: Number, required: true, min: 0 },
         at: { type: Date, default: Date.now },
-        note: { type: String, trim: true, default: '' }
+        note: { type: String, trim: true, default: '' },
+        /**
+         * Card details, captured at the counter.
+         *
+         * Structured rather than folded into `note` because the transaction
+         * number is what a chargeback or a settlement query is traced by, and
+         * fishing it back out of a free-text string is not a thing anyone
+         * should have to do. All optional: a shop that does not record them
+         * still takes cards.
+         */
+        bankAccount: { type: String, trim: true, default: '' },
+        customerBank: { type: String, trim: true, default: '' },
+        cardHolder: { type: String, trim: true, default: '' },
+        transactionNo: { type: String, trim: true, default: '' }
     },
     { _id: false }
 );
