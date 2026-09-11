@@ -2625,6 +2625,22 @@ export const deliveryAPI = {
 };
 
 export const userAPI = {
+  /**
+   * Wishlist. The server has held these all along; the app was keeping its own
+   * copy in localStorage and never calling it, so a customer's list died with
+   * their browser data and never reached their phone.
+   */
+  getFavorites: () =>
+    apiClient.get("/food/user/favorites", { contextModule: "user" }),
+  addFavoriteFood: (foodId) =>
+    apiClient.post(`/food/user/favorites/foods/${String(foodId)}`, {}, { contextModule: "user" }),
+  removeFavoriteFood: (foodId) =>
+    apiClient.delete(`/food/user/favorites/foods/${String(foodId)}`, { contextModule: "user" }),
+  addFavoriteRestaurant: (restaurantId) =>
+    apiClient.post(`/food/user/favorites/restaurants/${String(restaurantId)}`, {}, { contextModule: "user" }),
+  removeFavoriteRestaurant: (restaurantId) =>
+    apiClient.delete(`/food/user/favorites/restaurants/${String(restaurantId)}`, { contextModule: "user" }),
+
   deleteCurrentUserAccount: () =>
     apiClient
       .delete('/food/user/profile', { contextModule: 'user' })
