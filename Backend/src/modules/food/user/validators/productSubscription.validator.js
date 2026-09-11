@@ -11,7 +11,10 @@ const createSubscriptionSchema = z.object({
     frequency: z.enum(['daily', 'weekly', 'monthly']),
     daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
     dayOfMonth: z.number().int().min(1).max(28).optional(),
-    deliveryTime: timeSchema,
+    // One of the two. A slot is the way the app offers it; a bare time is still
+    // accepted, because the admin dialog and the earlier API contract use it.
+    deliveryTime: timeSchema.optional(),
+    deliverySlotId: z.string().min(1).optional(),
     startDate: z.string().min(1, 'startDate is required'),
     addressId: z.string().min(1, 'addressId is required'),
     paymentMethod: z.enum(['cash', 'razorpay', 'wallet']).optional(),
@@ -38,6 +41,9 @@ const parse = (schema, body) => {
 
 export const validateCreateSubscriptionDto = (body) => {
     const data = parse(createSubscriptionSchema, body);
+    if (!data.deliverySlotId && !data.deliveryTime) {
+        throw new ValidationError('Pick a delivery slot');
+    }
     const startDate = new Date(data.startDate);
     if (Number.isNaN(startDate.getTime())) {
         throw new ValidationError('Invalid startDate');
