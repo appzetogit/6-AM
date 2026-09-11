@@ -272,9 +272,17 @@ export const receiptHtml = (r, { title = "Invoice", held = false } = {}) => {
   .tax th, .tax td { border: 1px solid #000; padding: 1px 2px; font-size: 9px; text-align: right; }
   .stamp { display: inline-block; border: 1px solid #000; padding: 0 4px; font-size: 10px; font-weight: bold; }
   .foot { display: flex; justify-content: space-between; font-size: 9px; }
+  /* The watermark sits behind the figures and prints: a slip that looks like a
+     bill but is not one has to say so at a glance, not in small print that the
+     eye skips. -webkit-print-color-adjust keeps Chrome from dropping it. */
+  .mark { position: fixed; top: 42%; left: 50%; transform: translate(-50%, -50%) rotate(-32deg);
+    font-size: 46px; font-weight: bold; color: #e11d48; opacity: .35; white-space: nowrap;
+    pointer-events: none; z-index: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body > *:not(.mark) { position: relative; z-index: 1; }
   @media print { body { width: auto; padding: 0; } }
 </style></head><body>
-  <div class="c b" style="font-size:12px">${held ? "HELD BILL — NOT A TAX INVOICE" : escapeHtml(title.toUpperCase())}</div>
+  ${held ? '<div class="mark">Hold Bill</div>' : ""}
+  <div class="c b" style="font-size:12px">${held ? "HOLD BILL" : escapeHtml(title.toUpperCase())}</div>
   <h1>${escapeHtml(store.name || "")}</h1>
   ${store.address ? `<div class="c muted">${escapeHtml(store.address)}</div>` : ""}
   ${store.gstNumber ? `<div class="c muted">GSTIN NO : ${escapeHtml(store.gstNumber)}</div>` : ""}
@@ -292,12 +300,12 @@ export const receiptHtml = (r, { title = "Invoice", held = false } = {}) => {
       <td>Time</td><td class="sep">:</td><td class="r">${billTime(when)}</td>
     </tr>
     <tr>
-      <td>Invoice No</td><td class="sep">:</td>
-      <td colspan="4"><b>${escapeHtml(r.billNo || "-")}</b></td>
+      <td>${held ? "Hold Bill" : "Invoice No"}</td><td class="sep">:</td><td><b>${escapeHtml(r.billNo || "-")}</b></td>
+      <td>Cashier</td><td class="sep">:</td><td class="r">${escapeHtml(r.salesman || "-")}</td>
     </tr>
     <tr>
       <td>Type</td><td class="sep">:</td>
-      <td colspan="4">${escapeHtml(r.orderTypeLabel || ORDER_TYPE_LABEL[r.orderType] || "")}${r.tableNo ? ` · Table ${escapeHtml(r.tableNo)}` : ""}${r.salesman ? ` · ${escapeHtml(r.salesman)}` : ""}</td>
+      <td colspan="4">${escapeHtml(r.orderTypeLabel || ORDER_TYPE_LABEL[r.orderType] || "")}${r.tableNo ? ` · Table ${escapeHtml(r.tableNo)}` : ""}</td>
     </tr>
   </table>
 
@@ -318,14 +326,18 @@ export const receiptHtml = (r, { title = "Invoice", held = false } = {}) => {
   <hr>
 
   <table class="muted">
-    ${line("NO OF QTY", Number(r.totalQuantity || 0).toFixed(3))}
-    ${held ? "" : line("TENDERED", money(pay.tendered || 0, 2))}
-    ${held ? "" : line("CHANGE", money(pay.changeGiven || 0, 2))}
-    ${pay.dueAmount ? line("BALANCE DUE", money(pay.dueAmount, 2), true) : ""}
+    ${held
+      ? `${line("PIECES PURCHASED", Number(r.totalQuantity || 0).toFixed(0))}
+         ${line("DISCOUNT ITEMS", Number(r.discountedLines || 0).toFixed(0))}
+         ${line("TOTAL DISCOUNT", money(p.discount || 0, 2))}`
+      : `${line("NO OF QTY", Number(r.totalQuantity || 0).toFixed(3))}
+         ${line("TENDERED", money(pay.tendered || 0, 2))}
+         ${line("CHANGE", money(pay.changeGiven || 0, 2))}
+         ${pay.dueAmount ? line("BALANCE DUE", money(pay.dueAmount, 2), true) : ""}`}
   </table>
   <hr>
 
-  <div class="muted b">${escapeHtml(amountInWords(p.total))}</div>
+  ${held ? "" : `<div class="muted b">${escapeHtml(amountInWords(p.total))}</div>`}
   ${store.state ? `<div class="muted">Place of Supply : ${escapeHtml(store.state)}</div>` : ""}
 
   ${taxRows
@@ -338,8 +350,13 @@ export const receiptHtml = (r, { title = "Invoice", held = false } = {}) => {
 
   ${r.remarks ? `<div class="muted" style="margin-top:4px">Remarks : ${escapeHtml(r.remarks)}</div>` : ""}
 
-  <div class="c" style="margin-top:6px">${barcodeSvg(r.billNo)}</div>
-  <div class="c muted">Thank you for shopping with us</div>
+  ${held
+      ? `<div class="muted b" style="margin-top:4px">T &amp; C</div>
+         <div class="hsn">Not a tax invoice. Nothing has been charged — this bill is parked and prices are confirmed when it is paid.</div>`
+      // No barcode on a held bill: the "Scan Sales Invoice" box looks up sales,
+      // and a scannable code on a slip that is not one invites the mistake.
+      : `<div class="c" style="margin-top:6px">${barcodeSvg(r.billNo)}</div>`}
+  <div class="c muted">Thank you for shopping${store.name ? ` at ${escapeHtml(store.name)}` : " with us"}</div>
   <hr>
   <div class="foot"><span>Printed On : ${billDate(new Date())} ${billTime(new Date())}</span><span>E&amp;OE</span></div>
   <script>window.onload = function () { window.print(); };</script>
