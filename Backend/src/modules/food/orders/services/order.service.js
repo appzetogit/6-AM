@@ -1629,7 +1629,18 @@ export async function cancelOrder(orderId, userId, reason) {
   });
   if (!order) throw new NotFoundError("Order not found");
 
-  const allowed = ["created"];
+  // A confirmed order is already being cooked, which is why cancelling stops
+  // at "created". A booking is not: nothing is picked, no rider is looking for
+  // it until half an hour before the window. Refusing to cancel tomorrow's 7am
+  // round the moment it is placed leaves the customer stuck with it, so a
+  // booking stays cancellable until it is actually being worked on.
+  const windowStarted =
+    !order.scheduledAt || new Date(order.scheduledAt).getTime() <= Date.now();
+  const dispatchStarted =
+    Boolean(order.dispatch?.status) && order.dispatch.status !== "unassigned";
+  const isUntouchedBooking = !windowStarted && !dispatchStarted;
+
+  const allowed = isUntouchedBooking ? ["created", "confirmed"] : ["created"];
   if (!allowed.includes(order.orderStatus))
     throw new ValidationError("Order cannot be cancelled");
 
