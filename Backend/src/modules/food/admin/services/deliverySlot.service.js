@@ -3,6 +3,9 @@ import mongoose from 'mongoose';
 import { FoodDeliverySlot } from '../models/deliverySlot.model.js';
 import { FoodDeliverySlotBooking } from '../models/deliverySlotBooking.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
+import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
+import { FoodRestaurantOutletTimings } from '../../restaurant/models/outletTimings.model.js';
+import { toClientShape } from '../../restaurant/services/outletTimings.service.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 
 /**
@@ -101,11 +104,73 @@ const serialize = (slot) => ({
 });
 
 // ───────────────────────────── admin ─────────────────────────────
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-export async function listSlots({ includeInactive = false } = {}) {
+/**
+ * How many shops keep hours that cover each window.
+ *
+ * A window is the platform's promise that it delivers then, and ordering into
+ * one is deliberately not measured against a shop's counter hours — otherwise
+ * an early round, which exists precisely because the counter is shut, could
+ * never be ordered. That leaves the admin free to publish 3am with nothing to
+ * say nobody can serve it, so this is what the slots screen says it with.
+ *
+ * Counted as "on at least one day the window runs": a shop closed on Sundays
+ * still serves a daily 7am round on the other six.
+ */
+async function shopCoverageFor(slots) {
+    const capable = new Map(slots.map((slot) => [String(slot._id), 0]));
+    if (!slots.length) return { coverage: capable, shops: 0 };
+
+    const shops = await FoodRestaurant.find({ status: 'approved' }, { _id: 1 }).lean();
+    if (!shops.length) return { coverage: capable, shops: 0 };
+
+    const stored = await FoodRestaurantOutletTimings.find(
+        { restaurantId: { $in: shops.map((r) => r._id) } },
+        { restaurantId: 1, timings: 1 }
+    ).lean();
+    const byShop = new Map(stored.map((t) => [String(t.restaurantId), t]));
+
+    // Read through the same defaults the rest of the app uses: a shop with
+    // nothing on record keeps standard hours, and treating it as never open
+    // would put a warning on every window.
+    const weeks = shops.map((shop) => toClientShape(byShop.get(String(shop._id))));
+
+    for (const slot of slots) {
+        const runsOn = slot.daysOfWeek?.length ? slot.daysOfWeek : [0, 1, 2, 3, 4, 5, 6];
+        const opens = minutesOf(slot.startTime);
+        const closes = minutesOf(slot.endTime);
+
+        capable.set(
+            String(slot._id),
+            weeks.filter((week) =>
+                runsOn.some((weekday) => {
+                    const day = week[WEEKDAY_NAMES[weekday]];
+                    if (!day?.isOpen) return false;
+                    if (!TIME.test(String(day.openingTime)) || !TIME.test(String(day.closingTime))) return false;
+                    return minutesOf(day.openingTime) <= opens && minutesOf(day.closingTime) >= closes;
+                })
+            ).length
+        );
+    }
+
+    return { coverage: capable, shops: shops.length };
+}
+
+export async function listSlots({ includeInactive = false, withCoverage = false } = {}) {
     const filter = includeInactive ? {} : { isActive: true };
     const rows = await FoodDeliverySlot.find(filter).sort({ sortOrder: 1, startTime: 1 }).lean();
-    return { slots: rows.map(serialize) };
+    if (!withCoverage) return { slots: rows.map(serialize) };
+
+    // Only the admin screen asks for this — it is the one that needs telling
+    // when a window it just published is one no shop is open for.
+    const { coverage, shops } = await shopCoverageFor(rows);
+    return {
+        slots: rows.map((slot) => ({
+            ...serialize(slot),
+            coverage: { open: coverage.get(String(slot._id)) || 0, total: shops }
+        }))
+    };
 }
 
 export async function createSlot(dto = {}) {
@@ -271,6 +336,12 @@ async function reconcileSeats(slotIds, day) {
  * condition, so its ledger still reflects what is booked.
  */
 export async function claimSlotSeat({ slotId, day, capacity, orderId, unconditional = false }) {
+    // An uncapped window has no last place to fight over, so nothing is
+    // recorded for it. Writing anyway would grow one document by an id per
+    // order forever — reconciling only ever visits capped windows, so nothing
+    // would prune it.
+    if (!capacity) return true;
+
     // The row has to exist before it can be contended over: Mongo will not take
     // a $expr filter on an upsert. Two requests racing to create it is fine —
     // the unique {slotId, day} index means one of them just loses the insert.
