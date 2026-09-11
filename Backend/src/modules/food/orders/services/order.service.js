@@ -60,6 +60,14 @@ import {
  * is the local one — deriving it from the UTC instant puts an early-morning
  * window on the previous date.
  */
+/**
+ * How long before a booked window the rider hunt starts.
+ *
+ * Long enough to pick the order and ride to the shop, short enough that a
+ * rider is not held for an order that is hours away.
+ */
+const DISPATCH_LEAD_MS = 30 * 60 * 1000;
+
 const localDayOf = (at) => {
   const d = new Date(at);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -363,7 +371,7 @@ async function applyCancellationRefund(order, { cancelledBy = 'system', refundAm
   return { attempted: false, processed: false, reason: `unsupported_method_${paymentMethod}`, method: paymentMethod };
 }
 
-async function expireUnacceptedOrders(filter = {}) {
+export async function expireUnacceptedOrders(filter = {}) {
   const now = new Date();
   const baseFilter = {
     orderStatus: { $in: ["created", "confirmed"] },
@@ -430,6 +438,27 @@ async function expireUnacceptedOrders(filter = {}) {
   }
 
   return docs.length;
+}
+
+/**
+ * A booking whose window is now close: start the rider hunt that a same-minute
+ * order starts at checkout.
+ *
+ * Re-read rather than trusted: hours have passed since it was queued, and the
+ * order may have been cancelled, already picked up, or handed to a rider by a
+ * seller who accepted it by hand.
+ */
+export async function activateScheduledOrder(orderMongoId) {
+  const order = await FoodOrder.findById(orderMongoId).select('orderStatus dispatch').lean();
+  if (!order) return { activated: false, reason: 'gone' };
+  if (!['created', 'confirmed'].includes(String(order.orderStatus))) {
+    return { activated: false, reason: `status_${order.orderStatus}` };
+  }
+  if (order.dispatch?.status && order.dispatch.status !== 'unassigned') {
+    return { activated: false, reason: `dispatch_${order.dispatch.status}` };
+  }
+  await tryAutoAssign(orderMongoId);
+  return { activated: true };
 }
 
 export async function expireUnacceptedOrderById(orderMongoId) {
@@ -769,8 +798,16 @@ export async function createOrder(userId, dto) {
       // Only an order actually waiting on a seller carries a deadline. Leaving
       // one on an auto-confirmed order would let the timeout sweep cancel an
       // order nobody was waiting for.
+      //
+      // A booking runs to the start of its window instead of to a few minutes
+      // from now. Nobody is waiting on the seller at midnight for a 7am round,
+      // and a deadline measured from now cancelled it while they slept.
       acceptanceDeadlineAt:
-        initialStatus === "created" ? buildAcceptanceDeadline(new Date(), acceptanceWindowSeconds) : null,
+        initialStatus === "created"
+          ? (scheduledFor
+            ? new Date(scheduledFor)
+            : buildAcceptanceDeadline(new Date(), acceptanceWindowSeconds))
+          : null,
       dispatch: { modeAtCreation: dispatchMode, status: "unassigned" },
       statusHistory: [
         {
@@ -891,7 +928,9 @@ export async function createOrder(userId, dto) {
           orderId: order._id.toString(),
         },
         {
-          delay: acceptanceWindowSeconds * 1000,
+          // Matches the deadline on the order, so a booking is checked when its
+          // window opens rather than minutes after it was placed.
+          delay: Math.max(0, new Date(order.acceptanceDeadlineAt).getTime() - Date.now()),
           removeOnComplete: true,
           removeOnFail: true,
           jobId: `order-accept-timeout-${order._id?.toString?.()}`,
@@ -979,10 +1018,33 @@ export async function createOrder(userId, dto) {
     //
     // Fire-and-forget, exactly as the accept path does it: a dispatch failure
     // must not fail an order the customer has already paid for.
+    //
+    // A booking is the exception: hunting a rider at midnight for a 7am round
+    // holds one for eight hours and tells the customer nothing. It waits until
+    // the window is close, and the queue wakes it then.
     if (autoAccept) {
-      void tryAutoAssign(order._id).catch((err) => {
-        logger.warn(`Auto-dispatch failed for ${order._id}: ${err?.message || err}`);
-      });
+      const startsIn = scheduledFor ? new Date(scheduledFor).getTime() - Date.now() : 0;
+      if (startsIn > DISPATCH_LEAD_MS) {
+        void addOrderJob(
+          {
+            action: "SCHEDULED_ORDER_ACTIVATE",
+            orderMongoId: order._id?.toString?.(),
+            orderId: order._id.toString(),
+          },
+          {
+            delay: startsIn - DISPATCH_LEAD_MS,
+            removeOnComplete: true,
+            removeOnFail: true,
+            jobId: `order-scheduled-activate-${order._id?.toString?.()}`,
+          },
+        ).catch((err) => {
+          logger.warn(`Failed to enqueue scheduled activation: ${err?.message || err}`);
+        });
+      } else {
+        void tryAutoAssign(order._id).catch((err) => {
+          logger.warn(`Auto-dispatch failed for ${order._id}: ${err?.message || err}`);
+        });
+      }
     }
 
     const saved = normalizeOrderForClient(order);
