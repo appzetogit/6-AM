@@ -60,20 +60,28 @@ export default function PosTopBar({
         <span className="text-xl font-extrabold tracking-tight text-[#2b3a67]">{companyName}<span className="text-sky-500">.</span></span>
       </div>
 
-      <div className="flex items-center gap-4">
-        {ORDER_TYPES.map((t) => (
-          <label key={t.value} className="flex cursor-pointer items-center gap-1.5 text-[15px] text-gray-800">
-            <input
-              type="radio"
-              name="pos-order-type"
-              value={t.value}
-              checked={orderType === t.value}
-              onChange={() => onOrderType(t.value)}
-              className="h-4 w-4 accent-sky-500"
-            />
-            {t.label}
-          </label>
-        ))}
+      {/* Pills rather than radios, matching the Orders page's status tabs — the
+          same choice-of-one control, and the one the panel already uses.
+          Buttons carry the radio roles themselves so dropping the real inputs
+          does not drop what a screen reader is told. */}
+      <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Order type">
+        {ORDER_TYPES.map((t) => {
+          const active = orderType === t.value
+          return (
+            <button
+              key={t.value}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onOrderType(t.value)}
+              className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                active ? "bg-[#FA0272] text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              {t.label}
+            </button>
+          )
+        })}
       </div>
 
       <div className="flex items-center gap-2">
