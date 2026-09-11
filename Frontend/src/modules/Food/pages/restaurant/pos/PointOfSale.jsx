@@ -15,6 +15,7 @@ import PosOrdersModal from "@food/components/restaurant/pos/PosOrdersModal"
 import PosPayScreen from "@food/components/restaurant/pos/PosPayScreen"
 import PosCouponModal from "@food/components/restaurant/pos/PosCouponModal"
 import PosCardDetailsModal from "@food/components/restaurant/pos/PosCardDetailsModal"
+import PosCashTenderModal from "@food/components/restaurant/pos/PosCashTenderModal"
 import { PosChargesModal, PosTableModal } from "@food/components/restaurant/pos/PosSmallModals"
 import { KEY_ACTIONS, lineDiscount, printReceipt, ORDER_TYPE_LABEL } from "@food/components/restaurant/pos/posUtils"
 
@@ -56,10 +57,10 @@ export default function PointOfSale() {
   const [quoting, setQuoting] = useState(false)
   const [lastBill, setLastBill] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [modal, setModal] = useState(null) // holds | orders | payments | multiple | coupon | charges | table | card
-  // Whether the card payment being collected came from Card & Print (F9)
-  // rather than Card (F3) — the dialog is the same either way.
-  const [cardWillPrint, setCardWillPrint] = useState(false)
+  const [modal, setModal] = useState(null) // holds | orders | payments | multiple | coupon | charges | table | card | cash
+  // Whether the payment being collected came from a "& Print" key (F8, F9)
+  // rather than its plain twin — the dialog is the same either way.
+  const [pendingWillPrint, setPendingWillPrint] = useState(false)
   const [invoiceRef, setInvoiceRef] = useState("")
 
   // The shop's own account, named on a card tender so a settlement query knows
@@ -199,7 +200,10 @@ export default function PointOfSale() {
     if (mode === "multiple" && !tenders) { setModal("multiple"); return }
     // A card swipe is recorded, not just taken: the machine's transaction
     // number is what a chargeback is traced by, and nobody goes back for it.
-    if (mode === "card" && !tenders) { setCardWillPrint(print); setModal("card"); return }
+    if (mode === "card" && !tenders) { setPendingWillPrint(print); setModal("card"); return }
+    // Cash is handed over as notes, so the amount has to be asked for before
+    // the sale — the change owed is worked out from it, not from the bill.
+    if (mode === "cash" && !tenders) { setPendingWillPrint(print); setModal("cash"); return }
     if (orderType === "dine_in" && !tableNo) { setModal("table"); return }
 
     setBusy(true)
@@ -415,7 +419,18 @@ export default function PointOfSale() {
           busy={busy}
           onClose={() => setModal(null)}
           onFinalize={(card) =>
-            pay("card", { print: cardWillPrint || autoPrint, tenders: [{ mode: "card", ...card }] })
+            pay("card", { print: pendingWillPrint || autoPrint, tenders: [{ mode: "card", ...card }] })
+          }
+        />
+      ) : null}
+      {modal === "cash" && quote?.pricing ? (
+        <PosCashTenderModal
+          due={quote.pricing.total}
+          hasCustomer={Boolean(customer)}
+          busy={busy}
+          onCancel={() => setModal(null)}
+          onSubmit={(amount) =>
+            pay("cash", { print: pendingWillPrint || autoPrint, tenders: [{ mode: "cash", amount }] })
           }
         />
       ) : null}
