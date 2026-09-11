@@ -2,14 +2,17 @@ import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Wifi, WifiOff, Printer, Settings, Cloud, Trash2, Maximize2, Minimize2, X, LogOut, PanelLeft, Headset } from "lucide-react"
 import { getCompanyName, getModuleLogoUrl } from "@food/utils/businessSettings"
+import { POS_ORDER_TABS } from "./posOrderStatus"
 
 const iconBtn = "rounded p-1.5 text-gray-600 hover:bg-white/70 hover:text-gray-900 disabled:opacity-40"
 
 /**
- * The strip across the top of the till: who is ringing the sale up, and the
- * row of utility icons on the right.
+ * The strip across the top of the till: the shop's order book by status, who
+ * is ringing the sale up, and the row of utility icons on the right.
  */
 export default function PosTopBar({
+  orderStatus,
+  onOrderStatus,
   salesman,
   salesmen,
   onSalesman,
@@ -58,6 +61,23 @@ export default function PosTopBar({
       <div className="flex shrink-0 items-center gap-2">
         {logoUrl ? <img src={logoUrl} alt="" className="h-7 w-auto object-contain" /> : null}
         <span className="text-xl font-extrabold tracking-tight text-[#2b3a67]">{companyName}<span className="text-sky-500">.</span></span>
+      </div>
+
+      {/* The shop's order book, one tap away. shrink-0 and no wrap: squeezed,
+          eight pills stack one per line and swallow the screen the cart needs. */}
+      <div className="flex shrink-0 items-center gap-1.5">
+        {POS_ORDER_TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => onOrderStatus(t.key)}
+            className={`whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] font-semibold transition-colors ${
+              orderStatus === t.key ? "bg-[#FA0272] text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       <div className="flex items-center gap-2">
