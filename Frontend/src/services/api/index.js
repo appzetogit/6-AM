@@ -1055,6 +1055,25 @@ export const adminAPI = {
       ...config,
     }),
 
+  /**
+   * Delivery slots — the windows a customer can book instead of "as soon as
+   * you can". The admin four are authenticated; the fifth is what the cart and
+   * the subscription form read, and is deliberately public, because a customer
+   * choosing a window has not signed in yet on the shop page.
+   */
+  getDeliverySlots: (params = {}) =>
+    apiClient.get("/food/admin/delivery-slots", { params, contextModule: "admin" }),
+  createDeliverySlot: (body) =>
+    apiClient.post("/food/admin/delivery-slots", body ?? {}, { contextModule: "admin" }),
+  updateDeliverySlot: (slotId, body) =>
+    apiClient.patch(`/food/admin/delivery-slots/${String(slotId)}`, body ?? {}, {
+      contextModule: "admin",
+    }),
+  retireDeliverySlot: (slotId) =>
+    apiClient.delete(`/food/admin/delivery-slots/${String(slotId)}`, { contextModule: "admin" }),
+  getAvailableDeliverySlots: (params = {}, config = {}) =>
+    apiClient.get("/food/restaurant/delivery-slots", { params: params ?? {}, ...config }),
+
   /** Offers & Coupons (admin) */
   getAllOffers: (params = {}) =>
     apiClient.get("/food/admin/offers", { params, contextModule: "admin" }),
