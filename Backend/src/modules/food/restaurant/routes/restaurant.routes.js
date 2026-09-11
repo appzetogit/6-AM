@@ -114,6 +114,7 @@ import {
 } from '../controllers/restaurantBanner.controller.js';
 import { listBannersForRestaurantAppController } from '../../admin/controllers/restaurantAppBanner.controller.js';
 
+import { getAvailableSlotsController } from '../../admin/controllers/deliverySlot.controller.js';
 import { cacheResponse, invalidateCache } from '../../../../middleware/cache.js';
 
 const router = express.Router();
@@ -148,6 +149,9 @@ router.get('/restaurants/:id/menu', cacheResponse(600, 'restaurant_menu'), getPu
 router.get('/public/foods', cacheResponse(300, 'public_foods'), listPublicFoodsController);
 router.get('/restaurants/:id/outlet-timings', cacheResponse(600, 'restaurant_timings'), getOutletTimingsByRestaurantIdController);
 router.get('/offers', optionalAuth, listPublicOffersController);
+// Which delivery windows a customer can book. Public: whether the shop can
+// deliver at 7am is part of deciding whether to order at all.
+router.get('/delivery-slots', getAvailableSlotsController);
 // Public: categories list (zone-aware; returns zone categories + global)
 router.get('/categories/public', cacheResponse(600, 'categories'), listCategoriesController);
 
