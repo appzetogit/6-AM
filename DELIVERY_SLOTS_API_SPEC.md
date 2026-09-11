@@ -194,6 +194,11 @@ All four use the same wording as the list, so they can be shown to the customer 
 On any of them, re-fetch the day's slots and let them pick again — the list will now
 show the window with its reason.
 
+`This slot is full` is the one to expect on a busy window: the last place is decided
+here, not when the customer tapped it, so two people paying at the same moment for the
+same last place will see one order placed and one refusal. Treat it as a normal
+outcome, not an error state.
+
 These fire **before** the delivery-zone check, so a closed window reports the window
 rather than "We don't deliver to this address yet".
 
@@ -400,6 +405,11 @@ UI and the result read back out of the database.
 | 23 | Subscription ignores cut-off and capacity | accepted against a closed and a full window | tests |
 | 24 | Order from a due occurrence | carried the subscribed window, timed to its start | dev script |
 | 25 | Slot list and picker in the cart | closed and full windows shown greyed with their reason | browser |
+| 26 | Order placed from the cart UI into a chosen window | `scheduledAt` matched the window on the chosen day | browser |
+| 27 | Instant placed from the cart UI | `scheduledAt: null`, no window | browser |
+| 28 | Three checkouts at once for a one-place window | one order placed, two `This slot is full` | dev script |
+| 29 | Concurrent claims on a capped window | never more than the capacity let in | tests |
+| 30 | Cancelled order's place | freed on the next read of that day | tests |
 
 Backend suite at the time of writing: 176 tests, all passing
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
