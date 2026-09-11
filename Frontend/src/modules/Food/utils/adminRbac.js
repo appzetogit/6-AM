@@ -53,6 +53,8 @@ const PATH_PREFIX_TO_SECTION = [
   { prefix: "/admin/store/referral-settings", section: "referral_rewards" },
   { prefix: "/admin/store/customers", section: "customer_management" },
   { prefix: "/admin/store/support-tickets", section: "customer_management" },
+  // Ahead of the /admin/store/delivery catch-all, which would otherwise claim it.
+  { prefix: "/admin/store/delivery-slots", section: "system_settings" },
   { prefix: "/admin/store/delivery", section: "delivery_management" },
   { prefix: "/admin/store/delivery-partners", section: "delivery_management" },
   { prefix: "/admin/store/contact-messages", section: "support_management" },
