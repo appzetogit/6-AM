@@ -93,6 +93,7 @@ import {
     listPosOrdersController,
     holdPosBillController,
     listHeldBillsController,
+    getHeldBillReceiptController,
     takeHeldBillController,
     discardHeldBillController
 } from '../controllers/pos.controller.js';
@@ -351,6 +352,7 @@ router.get('/pos/customers', authMiddleware, requireRestaurant, searchPosCustome
 router.get('/pos/customers/:customerId/summary', authMiddleware, requireRestaurant, getPosCustomerSummaryController);
 router.get('/pos/holds', authMiddleware, requireRestaurant, listHeldBillsController);
 router.post('/pos/holds', authMiddleware, requireRestaurant, holdPosBillController);
+router.get('/pos/holds/:heldId', authMiddleware, requireRestaurant, getHeldBillReceiptController);
 router.post('/pos/holds/:heldId/resume', authMiddleware, requireRestaurant, takeHeldBillController);
 router.delete('/pos/holds/:heldId', authMiddleware, requireRestaurant, discardHeldBillController);
 
