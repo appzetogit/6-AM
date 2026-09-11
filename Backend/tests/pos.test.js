@@ -198,6 +198,46 @@ describe('a counter sale', () => {
         assert.equal(txn.paymentMethod, 'cash');
     });
 
+    it('gives change on a cash note, and leaves a due when the note is short', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 50, gstRate: 0 });
+
+        // The keypad path: one cash tender for what was actually handed over.
+        const note = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 2)], // ₹100
+            paymentMode: 'cash',
+            tenders: [{ mode: 'cash', amount: 500 }]
+        });
+        const saved = await FoodOrder.findById(note.order._id).lean();
+        assert.equal(saved.pos.tenders[0].amount, 500, 'the drawer took ₹500');
+        assert.equal(saved.pos.changeGiven, 400, 'and ₹400 went back');
+        assert.equal(saved.payment.status, 'paid');
+        assert.equal(saved.pos.dueAmount, 0);
+        assert.equal(note.receipt.payment.tendered, 500);
+        assert.equal(note.receipt.payment.changeGiven, 400);
+
+        // Short, with somebody to owe it.
+        const short = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 2)],
+            customerPhone: '9866666666',
+            paymentMode: 'cash',
+            tenders: [{ mode: 'cash', amount: 60 }]
+        });
+        const shortSaved = await FoodOrder.findById(short.order._id).lean();
+        assert.equal(shortSaved.pos.dueAmount, 40);
+        assert.equal(shortSaved.payment.status, 'cod_pending');
+        assert.equal(shortSaved.pos.changeGiven, 0);
+
+        // Short with nobody to owe it is refused, as the keypad says up front.
+        await expectError(
+            () => pos.createPosOrder(shop._id, {
+                items: [line(milk, 2)], paymentMode: 'cash', tenders: [{ mode: 'cash', amount: 60 }]
+            }),
+            'named customer',
+            assert
+        );
+    });
+
     it('keeps the card details the counter captured', async () => {
         const shop = await makeShop();
         const milk = await makeProduct(shop._id, { price: 100, gstRate: 0 });
