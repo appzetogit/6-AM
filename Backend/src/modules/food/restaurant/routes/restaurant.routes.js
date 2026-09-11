@@ -87,6 +87,8 @@ import {
     createPosOrderController,
     recordPosPaymentController,
     searchPosCustomersController,
+    lookupPosCustomerController,
+    savePosCustomerController,
     getPosCustomerSummaryController,
     getLastPosBillController,
     getPosBillController,
@@ -349,6 +351,8 @@ router.get('/pos/orders/last', authMiddleware, requireRestaurant, getLastPosBill
 router.get('/pos/orders/:orderId', authMiddleware, requireRestaurant, getPosBillController);
 router.post('/pos/orders/:orderId/payments', authMiddleware, requireRestaurant, recordPosPaymentController);
 router.get('/pos/customers', authMiddleware, requireRestaurant, searchPosCustomersController);
+router.get('/pos/customers/lookup', authMiddleware, requireRestaurant, lookupPosCustomerController);
+router.post('/pos/customers', authMiddleware, requireRestaurant, savePosCustomerController);
 router.get('/pos/customers/:customerId/summary', authMiddleware, requireRestaurant, getPosCustomerSummaryController);
 router.get('/pos/holds', authMiddleware, requireRestaurant, listHeldBillsController);
 router.post('/pos/holds', authMiddleware, requireRestaurant, holdPosBillController);
