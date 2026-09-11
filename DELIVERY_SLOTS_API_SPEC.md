@@ -211,6 +211,16 @@ and the app should not expect them at checkout:
   `dispatch.status` stays `unassigned` for hours and that is correct. Do not show
   "looking for a rider" on a booking until its window is close.
 
+And one thing a booking allows that an ordinary order does not:
+
+- **A booking can be cancelled while it is `confirmed`.** Cancelling an ordinary order
+  stops once the shop has accepted it, because it is already being cooked. A booking
+  is not being cooked, so `POST /food/orders/:id/cancel` keeps working on it until its
+  window opens or a rider is assigned — whichever comes first. Show the cancel button
+  on a booking in `confirmed`; hide it on an instant order in `confirmed`, where the
+  call still returns `Order cannot be cancelled`. Cancelling frees the place the
+  booking held in its window.
+
 ### Errors
 
 | Status | `message` | Cause |
@@ -461,6 +471,10 @@ UI and the result read back out of the database.
 | 43 | Acceptance sweep run against both | neither cancelled; the booking survives the night | dev script |
 | 44 | Booking unaccepted past its window | cancelled `cancelled_by_restaurant` | tests |
 | 45 | Waking a booking already delivered, dispatched, or gone | no rider hunt started | tests |
+| 46 | Cancelling a confirmed booking for tomorrow | cancelled, and its place in the window freed | dev script |
+| 47 | Cancelling a confirmed instant order beside it | still `Order cannot be cancelled` | dev script |
+| 48 | Cancelling a booking a rider is already on | refused | tests |
+| 49 | Cancelling a booking whose window has opened | refused | tests |
 
-Backend suite at the time of writing: 197 tests, all passing
+Backend suite at the time of writing: 201 tests, all passing
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
