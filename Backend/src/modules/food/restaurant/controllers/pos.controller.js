@@ -12,6 +12,7 @@ import {
     listPosOrders,
     holdPosBill,
     listHeldBills,
+    getHeldBillReceipt,
     takeHeldBill,
     discardHeldBill
 } from '../services/pos.service.js';
@@ -106,6 +107,14 @@ export const holdPosBillController = async (req, res, next) => {
 export const listHeldBillsController = async (req, res, next) => {
     try {
         return sendResponse(res, 200, 'Held bills', await listHeldBills(shopOf(req)));
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getHeldBillReceiptController = async (req, res, next) => {
+    try {
+        return sendResponse(res, 200, 'Held bill', await getHeldBillReceipt(shopOf(req), req.params.heldId));
     } catch (err) {
         next(err);
     }
