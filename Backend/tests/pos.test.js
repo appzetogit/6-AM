@@ -61,6 +61,8 @@ const makeProduct = (restaurantId, over = {}) =>
 
 const line = (product, quantity = 1, extra = {}) => ({ itemId: String(product._id), quantity, ...extra });
 
+const digitsOnly = (s) => String(s || '').replace(/\D/g, '');
+
 /** Sums of rounded halves need rounding again before comparing to a total. */
 const round = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -511,6 +513,126 @@ describe('customers', () => {
         assert.equal(summary.duePayment, 50);
         assert.equal(summary.totalSpent, 190);
         assert.equal(summary.loyaltyPoints, null, 'no loyalty programme exists');
+    });
+});
+
+describe('adding a customer at the counter', () => {
+    const form = (over = {}) => ({
+        name: 'Ravi Kumar',
+        phone: '98765 04321',
+        whatsappPhone: '9876504322',
+        email: 'ravi@example.com',
+        dateOfBirth: '1990-04-11',
+        anniversary: '2015-12-01',
+        addressLine1: 'Karnavati Platinum, Ghee Kanta',
+        country: 'India',
+        state: 'Gujarat',
+        city: 'Ahmedabad',
+        pinCode: '380001',
+        gstType: 'unregistered',
+        ...over
+    });
+
+    it('saves every field the form collects, address and all', async () => {
+        const { customer } = await pos.savePosCustomer(form());
+        assert.equal(customer.phone, '9876504321', 'spaces and dashes are not part of a number');
+
+        const saved = await FoodUser.findById(customer.id).lean();
+        assert.equal(saved.name, 'Ravi Kumar');
+        assert.equal(saved.email, 'ravi@example.com');
+        assert.equal(saved.whatsappPhone, '9876504322');
+        assert.equal(new Date(saved.dateOfBirth).getFullYear(), 1990);
+        assert.equal(new Date(saved.anniversary).getFullYear(), 2015);
+
+        const [address] = saved.addresses;
+        assert.equal(address.street, 'Karnavati Platinum, Ghee Kanta');
+        assert.equal(address.city, 'Ahmedabad');
+        assert.equal(address.state, 'Gujarat');
+        assert.equal(address.country, 'India');
+        assert.equal(address.zipCode, '380001');
+        assert.equal(address.isDefault, true);
+        // Typed at a counter, not picked off a map. Before the model dropped
+        // the half-built Point this threw "Can't extract geo keys" and the
+        // whole customer failed to save.
+        assert.equal(address.location, undefined, 'no pin, and that is allowed');
+    });
+
+    it('updates the customer that number already belongs to, without blanking what was left empty', async () => {
+        const first = await pos.savePosCustomer(form());
+        const again = await pos.savePosCustomer({ name: 'Ravi K', phone: '9876504321', gstType: 'unregistered' });
+
+        assert.equal(again.customer.id, first.customer.id, 'phone is the identity, so this is the same person');
+        const saved = await FoodUser.findById(again.customer.id).lean();
+        assert.equal(saved.name, 'Ravi K', 'what was retyped is updated');
+        assert.equal(
+            saved.email, 'ravi@example.com',
+            'a cashier who did not retype the email meant "I do not have it", not "delete it"'
+        );
+        assert.equal(saved.whatsappPhone, '9876504322');
+        assert.equal(await FoodUser.countDocuments({ phone: '9876504321' }), 1, 'and no duplicate');
+    });
+
+    it('holds a registered customer to a real GSTIN, and clears it if they stop being one', async () => {
+        await expectError(
+            () => pos.savePosCustomer(form({ gstType: 'registered' })),
+            'needs a GSTIN',
+            assert
+        );
+        await expectError(
+            () => pos.savePosCustomer(form({ gstType: 'registered', gstin: '24AAAA' })),
+            'not in a valid format',
+            assert
+        );
+
+        const { customer } = await pos.savePosCustomer(form({ gstType: 'registered', gstin: '24aaacf5319k1ze' }));
+        assert.equal(customer.gstin, '24AAACF5319K1ZE', 'stored upper-case, as it is printed');
+        assert.equal(customer.gstType, 'registered');
+
+        const back = await pos.savePosCustomer(form({ gstType: 'unregistered' }));
+        assert.equal(back.customer.gstin, '', 'an unregistered customer keeps no stale GSTIN on their bills');
+    });
+
+    it('refuses what it cannot store', async () => {
+        await expectError(() => pos.savePosCustomer(form({ name: '  ' })), 'Name is required', assert);
+        await expectError(() => pos.savePosCustomer(form({ phone: '98765' })), '10-digit', assert);
+        await expectError(() => pos.savePosCustomer(form({ whatsappPhone: '123' })), 'WhatsApp number must be 10', assert);
+        await expectError(() => pos.savePosCustomer(form({ email: 'ravi@' })), 'email is not valid', assert);
+        await expectError(() => pos.savePosCustomer(form({ dateOfBirth: 'yesterday' })), 'not a valid date', assert);
+        await expectError(() => pos.savePosCustomer(form({ gstType: 'maybe' })), 'GST type must be', assert);
+        assert.equal(await FoodUser.countDocuments({}), 0, 'nothing half-written got through');
+    });
+
+    it('keeps a half-filled address off the record rather than half-writing it', async () => {
+        const { customer } = await pos.savePosCustomer(form({ addressLine1: 'Somewhere', city: '', state: '' }));
+        const saved = await FoodUser.findById(customer.id).lean();
+        assert.deepEqual(saved.addresses, [], 'city and state are required on an address; without them there is none');
+    });
+
+    it('tells the cashier the number is already taken, before the form is filled in', async () => {
+        assert.deepEqual(await pos.lookupPosCustomer('9876504321'), { exists: false });
+
+        await pos.savePosCustomer(form());
+        const found = await pos.lookupPosCustomer('98765 04321');
+        assert.equal(found.exists, true);
+        assert.equal(found.customer.name, 'Ravi Kumar');
+        assert.equal(found.customer.city, 'Ahmedabad', 'and hands back enough to fill the form in');
+        assert.equal(found.customer.pinCode, '380001');
+
+        await expectError(() => pos.lookupPosCustomer('12345'), '10-digit', assert);
+    });
+
+    it('cannot surface the synthetic walk-in as a real customer', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id);
+        await pos.createPosOrder(shop._id, { items: [line(milk)] }); // creates the walk-in stand-in
+
+        const walkIn = await FoodUser.findOne({ phone: /^pos-walkin-/ }).lean();
+        assert.ok(walkIn, 'the stand-in exists');
+        // Its "phone" is pos-walkin-<id>, which no 10-digit lookup can equal —
+        // the stand-in is unreachable by number by construction, and the
+        // isWalkInPhone guard in the lookup is the belt to that pair of braces.
+        assert.equal(digitsOnly(walkIn.phone).length === 10, false);
+        await expectError(() => pos.lookupPosCustomer(walkIn.phone), '10-digit', assert);
     });
 });
 
