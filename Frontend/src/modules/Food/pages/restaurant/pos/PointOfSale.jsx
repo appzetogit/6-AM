@@ -16,6 +16,7 @@ import PosPayScreen from "@food/components/restaurant/pos/PosPayScreen"
 import PosCouponModal from "@food/components/restaurant/pos/PosCouponModal"
 import PosCardDetailsModal from "@food/components/restaurant/pos/PosCardDetailsModal"
 import PosCashTenderModal from "@food/components/restaurant/pos/PosCashTenderModal"
+import PosOrderBoard from "@food/components/restaurant/pos/PosOrderBoard"
 import { PosChargesModal } from "@food/components/restaurant/pos/PosSmallModals"
 import { KEY_ACTIONS, lineDiscount, printReceipt } from "@food/components/restaurant/pos/posUtils"
 
@@ -66,6 +67,9 @@ export default function PointOfSale() {
   // rather than its plain twin — the dialog is the same either way.
   const [pendingWillPrint, setPendingWillPrint] = useState(false)
   const [invoiceRef, setInvoiceRef] = useState("")
+  // Which status the order board is showing. Null while the till is on the
+  // sale screen, so no pill sits lit over a screen that is not a status.
+  const [orderStatus, setOrderStatus] = useState(null)
 
   // The shop's own account, named on a card tender so a settlement query knows
   // which bank the money landed in.
@@ -297,6 +301,8 @@ export default function PointOfSale() {
   return (
     <div className="flex h-screen flex-col bg-[#f4f7fb] text-gray-800">
       <PosTopBar
+        orderStatus={orderStatus}
+        onOrderStatus={setOrderStatus}
         salesman={salesman}
         salesmen={salesmen}
         onSalesman={setSalesman}
@@ -375,6 +381,9 @@ export default function PointOfSale() {
         <PosRightRail onOpen={setModal} summary={summary} customer={customer} lastBill={lastBill} onPrintLast={printLast} />
       </div>
 
+      {orderStatus ? (
+        <PosOrderBoard status={orderStatus} onStatus={setOrderStatus} onClose={() => setOrderStatus(null)} />
+      ) : null}
       {modal === "holds" ? <PosHoldBillsModal onClose={() => setModal(null)} onResume={resumeHeld} /> : null}
       {modal === "orders" || modal === "payments" ? (
         <PosOrdersModal mode={modal} onClose={() => setModal(null)} onPaid={() => { loadLastBill(); if (customer?.id) loadSummary(customer.id) }} />
