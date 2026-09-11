@@ -6,6 +6,7 @@ import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js'
 import { createOrder } from '../../orders/services/order.service.js';
 import { calculateOrderPricing } from '../../orders/services/order-pricing.service.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
+import { nextSequence } from '../../admin/models/counter.model.js';
 import { resolveOrderCartItems } from '../../orders/helpers/order-cart-items.helper.js';
 import {
     evaluateCoupon,
@@ -585,8 +586,7 @@ const ORDER_TYPE_LABEL = { dine_in: 'Dine In', take_away: 'Take Away', walk_in: 
  * is always intra-state: the customer is standing in the shop. IGST is carried
  * at zero so the printed table keeps the shape an accountant expects.
  */
-function taxSummaryOf(order) {
-    const pricing = order.pricing || {};
+function taxSummaryOf({ items = [], pricing = {} } = {}) {
     const subtotal = Number(pricing.subtotal) || 0;
     if (!(subtotal > 0)) return [];
 
@@ -594,7 +594,7 @@ function taxSummaryOf(order) {
     const taxableShare = Math.max(0, subtotal - discount) / subtotal;
 
     const byRate = new Map();
-    for (const line of order.items || []) {
+    for (const line of items) {
         // null and undefined mean "no slab of its own" — the same distinction
         // computeItemsTax draws, since Number(null) is 0 and would silently
         // make every untagged item tax-free.
@@ -748,18 +748,34 @@ export async function holdPosBill(restaurantId, dto = {}) {
     const rawItems = Array.isArray(dto.items) ? dto.items : [];
     if (!rawItems.length) throw new ValidationError('There is nothing on the bill to hold');
 
-    const items = rawItems.map((raw) => ({
-        itemId: String(raw?.itemId || raw?.id || '').trim(),
-        name: String(raw?.name || ''),
-        variantId: String(raw?.variantId || ''),
-        price: Math.max(0, Number(raw?.price) || 0),
-        quantity: Math.max(1, parseInt(raw?.quantity, 10) || 1),
-        discount: Math.max(0, Number(raw?.discount) || 0)
-    }));
+    const restaurant = await loadRestaurant(restaurantId);
+
+    // Priced through the same engine the sale will use, so the slip handed to
+    // the customer and the totals strip they just watched agree. The client
+    // sends what it has; none of it is trusted for the figures.
+    const quote = await quotePosOrder(restaurantId, dto);
+    const quotedById = new Map(quote.items.map((line) => [String(line.itemId), line]));
+
+    const items = rawItems.map((raw) => {
+        const itemId = String(raw?.itemId || raw?.id || '').trim();
+        const quoted = quotedById.get(itemId);
+        return {
+            itemId,
+            name: quoted?.name || String(raw?.name || ''),
+            variantId: String(raw?.variantId || ''),
+            price: quoted ? quoted.price : Math.max(0, Number(raw?.price) || 0),
+            quantity: Math.max(1, parseInt(raw?.quantity, 10) || 1),
+            discount: quoted ? quoted.discount : Math.max(0, Number(raw?.discount) || 0),
+            gstRate: quoted?.gstRate ?? null
+        };
+    });
     if (items.some((line) => !line.itemId)) throw new ValidationError('Every line needs an itemId');
+
+    const seq = await nextSequence(`pos_hold_${String(restaurantId)}`);
 
     const held = await FoodPosHeldBill.create({
         restaurantId,
+        holdNo: `HOLD${seq}`,
         customer: {
             userId: dto.customerId && isId(dto.customerId) ? dto.customerId : null,
             name: String(dto.customerName || ''),
@@ -777,15 +793,94 @@ export async function holdPosBill(restaurantId, dto = {}) {
         additionalCharges: Math.max(0, Number(dto.additionalCharges) || 0),
         roundOff: dto.roundOff === true,
         couponCode: String(dto.couponCode || ''),
-        estimatedTotal: Math.max(0, Number(dto.estimatedTotal) || 0),
+        estimatedTotal: round2(quote.pricing?.total),
+        pricing: {
+            subtotal: round2(quote.pricing?.subtotal),
+            tax: round2(quote.pricing?.tax),
+            discount: round2(quote.pricing?.discount),
+            additionalCharges: round2(quote.pricing?.additionalCharges),
+            roundOff: round2(quote.pricing?.roundOff),
+            total: round2(quote.pricing?.total)
+        },
         heldBy: String(dto.salesman || '')
     });
-    return held.toObject();
+
+    const saved = held.toObject();
+    return { held: { ...saved, id: String(saved._id) }, receipt: heldToReceipt(saved, restaurant) };
+}
+
+/**
+ * A parked bill in the shape the printer takes.
+ *
+ * Same shape as a sale's receipt so one template prints both — what differs is
+ * that nothing has been tendered, which is exactly what the slip has to make
+ * unmistakable.
+ */
+export function heldToReceipt(held, restaurant = null) {
+    if (!held) return null;
+    const pricing = held.pricing || {};
+    const items = (held.items || []).map((line) => ({
+        name: line.name,
+        variantName: '',
+        quantity: line.quantity,
+        price: line.price,
+        discount: line.discount || 0,
+        gstRate: line.gstRate ?? null,
+        amount: round2(line.price * line.quantity - (line.discount || 0))
+    }));
+
+    return {
+        id: String(held._id || ''),
+        billNo: held.holdNo || '',
+        createdAt: held.createdAt || new Date(),
+        orderType: held.orderType || 'walk_in',
+        orderTypeLabel: ORDER_TYPE_LABEL[held.orderType] || 'Walk In',
+        tableNo: held.tableNo || '',
+        salesman: held.salesman || held.heldBy || '',
+        remarks: held.remarks || '',
+        store: restaurant
+            ? {
+                name: restaurant.restaurantName || '',
+                address: [restaurant.addressLine1, restaurant.area, restaurant.city, restaurant.pincode].filter(Boolean).join(', '),
+                phone: restaurant.ownerPhone || restaurant.primaryContactNumber || '',
+                gstNumber: restaurant.gstNumber || '',
+                fssaiNumber: restaurant.fssaiNumber || '',
+                state: restaurant.state || ''
+            }
+            : null,
+        customer: { name: held.customer?.name || 'Walk in Customer', phone: held.customer?.phone || '' },
+        items,
+        pricing: {
+            subtotal: round2(pricing.subtotal),
+            tax: round2(pricing.tax),
+            discount: round2(pricing.discount),
+            manualDiscount: 0,
+            couponCode: held.couponCode || null,
+            additionalCharges: round2(pricing.additionalCharges),
+            roundOff: round2(pricing.roundOff),
+            total: round2(pricing.total)
+        },
+        totalQuantity: round2(items.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0)),
+        /** How many lines were knocked down, which the slip states separately. */
+        discountedLines: items.filter((l) => (Number(l.discount) || 0) > 0).length,
+        taxSummary: taxSummaryOf({ items, pricing }),
+        // Nothing has been taken. An empty tender list is the honest answer and
+        // the template keys off it to leave the money block out entirely.
+        payment: { mode: '', method: '', status: 'held', tenders: [], tendered: 0, changeGiven: 0, dueAmount: 0 }
+    };
 }
 
 export async function listHeldBills(restaurantId) {
     const rows = await FoodPosHeldBill.find({ restaurantId }).sort({ createdAt: -1 }).limit(100).lean();
     return rows.map((h) => ({ ...h, id: String(h._id) }));
+}
+
+/** Reprints a parked bill's slip without disturbing the hold. */
+export async function getHeldBillReceipt(restaurantId, heldId) {
+    if (!isId(heldId)) throw new NotFoundError('Held bill not found');
+    const held = await FoodPosHeldBill.findOne({ _id: heldId, restaurantId }).lean();
+    if (!held) throw new NotFoundError('Held bill not found');
+    return heldToReceipt(held, await loadRestaurant(restaurantId));
 }
 
 /** Resuming removes the hold: a bill is either parked or on the screen, never both. */
