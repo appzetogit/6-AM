@@ -105,79 +105,234 @@ export const matchesCode = (item, code) => {
 const escapeHtml = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch])
 
+const ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+  "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"]
+const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+
+const twoDigits = (n) => (n < 20 ? ONES[n] : `${TENS[Math.floor(n / 10)]}${n % 10 ? ` ${ONES[n % 10]}` : ""}`)
+
+/** Indian grouping — crore, lakh, thousand — not the short scale. */
+const threeAndUp = (n) => {
+  const parts = []
+  const crore = Math.floor(n / 10000000)
+  const lakh = Math.floor((n % 10000000) / 100000)
+  const thousand = Math.floor((n % 100000) / 1000)
+  const hundred = Math.floor((n % 1000) / 100)
+  const rest = n % 100
+
+  if (crore) parts.push(`${threeAndUp(crore)} Crore`)
+  if (lakh) parts.push(`${twoDigits(lakh)} Lakh`)
+  if (thousand) parts.push(`${twoDigits(thousand)} Thousand`)
+  if (hundred) parts.push(`${ONES[hundred]} Hundred`)
+  // "and" only where a hundred is followed by a remainder, which is how the
+  // amount is read aloud and how every printed bill in the country writes it.
+  if (rest) parts.push(`${hundred ? "and " : ""}${twoDigits(rest)}`)
+  return parts.join(" ")
+}
+
+/** "Rupees Nine Hundred and Forty Six Only" — required on a tax invoice. */
+export const amountInWords = (value) => {
+  const total = Math.max(0, Number(value) || 0)
+  const rupees = Math.floor(total)
+  const paise = Math.round((total - rupees) * 100)
+  if (!rupees && !paise) return "Rupees Zero Only"
+  const head = rupees ? `Rupees ${threeAndUp(rupees)}` : "Rupees Zero"
+  // Comma, not a second "and": the rupee words may already contain one
+  // ("Two Hundred and Eight"), and "and Eight and Fifty Paise" reads as a sum.
+  return paise ? `${head}, Paise ${twoDigits(paise)} Only` : `${head} Only`
+}
+
+// Code 128 bar/space widths, values 0-106. Standard table; the last entry is
+// the 7-module stop pattern.
+const CODE128_PATTERNS = ("212222222122222221121223121322131222122213122312132212221213221312231212112232122132122231113222123122" +
+  "123221223211221132221231213212223112312131311222321122321221312212322112322211212123212321232121111323131123131321" +
+  "112313132113132311211313231113231311112133112331132131113123113321133121313121211331231131213113213311213131311123" +
+  "311321331121312113312311332111314111221411431111111224111422121124121421141122141221112214112412122114122411142112" +
+  "142211241211221114413111241112134111111242121142121241114212124112124211411212421112421211212141214121412121111143" +
+  "111341131141114113114311411113411311113141114131311141411131211412211214211232").match(/.{6}/g).concat(["2331112"])
+
+/**
+ * A scannable Code 128-B barcode of the bill number, as inline SVG.
+ *
+ * Not decoration: the till's "Scan Sales Invoice" box looks a bill up by this
+ * number, so without a barcode on the paper that box has nothing to scan and a
+ * reprint means typing fourteen characters off a thermal print.
+ */
+export const barcodeSvg = (text, { height = 44, module = 1.4 } = {}) => {
+  const value = String(text || "").replace(/[^\x20-\x7e]/g, "")
+  if (!value) return ""
+
+  const codes = [104] // Start B
+  for (const ch of value) codes.push(ch.charCodeAt(0) - 32)
+  // Checksum is position-weighted from the start character, which counts as 1.
+  const checksum = codes.reduce((sum, code, i) => sum + code * (i === 0 ? 1 : i), 0) % 103
+  codes.push(checksum, 106) // and Stop
+
+  let x = 0
+  const bars = []
+  for (const code of codes) {
+    const widths = CODE128_PATTERNS[code]
+    if (!widths) continue
+    for (let i = 0; i < widths.length; i += 1) {
+      const w = Number(widths[i]) * module
+      if (i % 2 === 0) bars.push(`<rect x="${x.toFixed(2)}" y="0" width="${w.toFixed(2)}" height="${height}"/>`)
+      x += w
+    }
+  }
+  // A quiet zone either side, without which many scanners will not read it.
+  const quiet = 10 * module
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${(x + quiet * 2).toFixed(2)}" height="${height}" viewBox="${(-quiet).toFixed(2)} 0 ${(x + quiet * 2).toFixed(2)} ${height}" fill="#000">${bars.join("")}</svg>`
+}
+
 /**
  * An 80mm receipt. Opened in its own window and printed from there, the same
  * way the customer-side invoice does it, so the till's own layout never has
  * to carry print CSS.
  */
-export const receiptHtml = (r, { title = "Bill", held = false } = {}) => {
+const pad2 = (n) => String(n).padStart(2, "0")
+const billDate = (d) => { const x = new Date(d); return `${pad2(x.getDate())}/${pad2(x.getMonth() + 1)}/${x.getFullYear()}` }
+const billTime = (d) => new Date(d).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })
+
+/**
+ * The printed bill: a tax invoice on 80mm paper.
+ *
+ * It carries what a GST invoice has to — the seller's GSTIN, the place of
+ * supply, and a CGST/SGST summary per slab — plus what the counter needs:
+ * tendered and change, so the drawer can be reconciled against the paper, and
+ * a scannable bill number so a reprint does not mean retyping it.
+ *
+ * A held bill goes through the same layout but is stamped as not a tax
+ * invoice, because nothing has been charged for it yet.
+ */
+export const receiptHtml = (r, { title = "Invoice", held = false } = {}) => {
   const store = r.store || {}
+  const p = r.pricing || {}
+  const pay = r.payment || {}
+  const when = r.createdAt || new Date()
+
   const rows = (r.items || [])
     .map(
       (it, i) => `
       <tr>
         <td>${i + 1}</td>
-        <td>${escapeHtml(it.name)}${it.variantName ? ` <small>(${escapeHtml(it.variantName)})</small>` : ""}</td>
-        <td class="r">${it.quantity}</td>
+        <td>${escapeHtml(it.name)}${it.variantName ? ` <small>(${escapeHtml(it.variantName)})</small>` : ""}
+          ${it.gstRate ? `<div class="hsn">GST ${it.gstRate}%</div>` : ""}</td>
+        <td class="r">${Number(it.quantity).toFixed(3)}</td>
         <td class="r">${money(it.price, 2)}</td>
-        <td class="r">${it.discount ? money(it.discount, 2) : "-"}</td>
+        <td class="r">${money(it.discount || 0, 2)}</td>
         <td class="r">${money(it.amount, 2)}</td>
       </tr>`,
     )
     .join("")
-  const p = r.pricing || {}
-  const pay = r.payment || {}
-  const tenders = (pay.tenders || []).map((t) => `${TENDER_LABEL[t.mode] || t.mode} ₹${money(t.amount, 2)}`).join(", ")
+
+  const taxRows = (r.taxSummary || [])
+    .map(
+      (t) => `<tr>
+        <td class="r">${money(t.taxableValue, 2)}</td>
+        <td class="r">${money(t.cgst, 2)}</td>
+        <td class="r">${money(t.sgst, 2)}</td>
+        <td class="r">${money(t.cess, 2)}</td>
+        <td class="r">${money(t.igst, 2)}</td>
+      </tr>`,
+    )
+    .join("")
+
+  // One line per tender, so a split bill shows how it was actually settled.
+  const tenderLines = (pay.tenders || [])
+    .map((t) => `<tr><td>BY ${escapeHtml(String(TENDER_LABEL[t.mode] || t.mode).toUpperCase())}</td><td class="sep">:</td><td class="r">${money(t.amount, 2)}</td></tr>`)
+    .join("")
+
+  const line = (label, value, bold = false) =>
+    `<tr${bold ? ' class="b"' : ""}><td>${label}</td><td class="sep">:</td><td class="r">${value}</td></tr>`
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)} ${escapeHtml(r.billNo || "")}</title>
 <style>
   * { box-sizing: border-box; }
-  body { font: 12px/1.35 "Courier New", monospace; color: #000; margin: 0; padding: 8px; width: 80mm; }
-  h1 { font-size: 15px; margin: 0; text-align: center; }
-  .c { text-align: center; } .r { text-align: right; }
-  .muted { color: #333; font-size: 11px; }
-  hr { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
+  body { font: 11px/1.3 "Courier New", monospace; color: #000; margin: 0; padding: 6px; width: 80mm; }
+  h1 { font-size: 14px; margin: 0 0 1px; text-align: center; text-transform: uppercase; }
+  .c { text-align: center; } .r { text-align: right; } .b { font-weight: bold; }
+  .muted { font-size: 10px; }
+  .hsn { font-size: 9px; }
+  hr { border: 0; border-top: 1px dashed #000; margin: 4px 0; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 2px 0; vertical-align: top; }
-  th { text-align: left; border-bottom: 1px solid #000; font-size: 11px; }
-  .tot td { padding: 1px 0; }
-  .grand td { font-weight: bold; font-size: 14px; border-top: 1px solid #000; padding-top: 4px; }
-  .badge { display: inline-block; border: 1px solid #000; padding: 0 4px; font-size: 11px; }
-  @media print { body { width: auto; } }
+  td, th { padding: 1px 0; vertical-align: top; }
+  .items th { border-bottom: 1px solid #000; border-top: 1px solid #000; text-align: left; font-size: 10px; }
+  .items th.r, .items td.r { text-align: right; }
+  .sep { width: 10px; text-align: center; }
+  .grand td { font-size: 13px; font-weight: bold; }
+  .tax th, .tax td { border: 1px solid #000; padding: 1px 2px; font-size: 9px; text-align: right; }
+  .stamp { display: inline-block; border: 1px solid #000; padding: 0 4px; font-size: 10px; font-weight: bold; }
+  .foot { display: flex; justify-content: space-between; font-size: 9px; }
+  @media print { body { width: auto; padding: 0; } }
 </style></head><body>
+  <div class="c b" style="font-size:12px">${held ? "HELD BILL — NOT A TAX INVOICE" : escapeHtml(title.toUpperCase())}</div>
   <h1>${escapeHtml(store.name || "")}</h1>
   ${store.address ? `<div class="c muted">${escapeHtml(store.address)}</div>` : ""}
-  ${store.phone ? `<div class="c muted">Ph: ${escapeHtml(store.phone)}</div>` : ""}
-  ${store.gstNumber ? `<div class="c muted">GSTIN: ${escapeHtml(store.gstNumber)}</div>` : ""}
-  ${store.fssaiNumber ? `<div class="c muted">FSSAI: ${escapeHtml(store.fssaiNumber)}</div>` : ""}
+  ${store.gstNumber ? `<div class="c muted">GSTIN NO : ${escapeHtml(store.gstNumber)}</div>` : ""}
+  ${store.fssaiNumber ? `<div class="c muted">FSSAI : ${escapeHtml(store.fssaiNumber)}</div>` : ""}
+  ${store.phone ? `<div class="c muted">Phone No : ${escapeHtml(store.phone)}</div>` : ""}
   <hr>
-  <div class="c"><span class="badge">${held ? "HELD BILL — NOT A TAX INVOICE" : escapeHtml(title.toUpperCase())}</span></div>
-  <table class="muted" style="margin-top:4px">
-    <tr><td>Bill No</td><td class="r"><b>${escapeHtml(r.billNo || "-")}</b></td></tr>
-    <tr><td>Date</td><td class="r">${escapeHtml(fmtDateTime(r.createdAt || new Date()))}</td></tr>
-    <tr><td>Type</td><td class="r">${escapeHtml(r.orderTypeLabel || ORDER_TYPE_LABEL[r.orderType] || "")}${r.tableNo ? ` · Table ${escapeHtml(r.tableNo)}` : ""}</td></tr>
-    ${r.salesman ? `<tr><td>Salesman</td><td class="r">${escapeHtml(r.salesman)}</td></tr>` : ""}
-    <tr><td>Customer</td><td class="r">${escapeHtml(r.customer?.name || "Walk in Customer")}${r.customer?.phone ? ` · ${escapeHtml(r.customer.phone)}` : ""}</td></tr>
+
+  <table class="muted">
+    <tr>
+      <td>Name</td><td class="sep">:</td><td>${escapeHtml(r.customer?.name || "Walk in Customer")}</td>
+      <td>Date</td><td class="sep">:</td><td class="r">${billDate(when)}</td>
+    </tr>
+    <tr>
+      <td>Mobile</td><td class="sep">:</td><td>${escapeHtml(r.customer?.phone || "-")}</td>
+      <td>Time</td><td class="sep">:</td><td class="r">${billTime(when)}</td>
+    </tr>
+    <tr>
+      <td>Invoice No</td><td class="sep">:</td>
+      <td colspan="4"><b>${escapeHtml(r.billNo || "-")}</b></td>
+    </tr>
+    <tr>
+      <td>Type</td><td class="sep">:</td>
+      <td colspan="4">${escapeHtml(r.orderTypeLabel || ORDER_TYPE_LABEL[r.orderType] || "")}${r.tableNo ? ` · Table ${escapeHtml(r.tableNo)}` : ""}${r.salesman ? ` · ${escapeHtml(r.salesman)}` : ""}</td>
+    </tr>
   </table>
-  <hr>
-  <table>
-    <thead><tr><th>#</th><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Disc</th><th class="r">Amt</th></tr></thead>
+
+  <table class="items" style="margin-top:4px">
+    <thead><tr><th>#</th><th>Item</th><th class="r">Qty</th><th class="r">MRP</th><th class="r">Disc</th><th class="r">Net</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  <hr>
-  <table class="tot">
-    <tr><td>Sub Total</td><td class="r">${money(p.subtotal, 2)}</td></tr>
-    ${p.discount ? `<tr><td>Discount${p.couponCode ? ` (${escapeHtml(p.couponCode)})` : ""}</td><td class="r">-${money(p.discount, 2)}</td></tr>` : ""}
-    ${p.tax ? `<tr><td>GST</td><td class="r">${money(p.tax, 2)}</td></tr>` : ""}
-    ${p.additionalCharges ? `<tr><td>Add. Charges</td><td class="r">${money(p.additionalCharges, 2)}</td></tr>` : ""}
-    ${p.roundOff ? `<tr><td>Round Off</td><td class="r">${p.roundOff > 0 ? "+" : ""}${money(p.roundOff, 2)}</td></tr>` : ""}
-    <tr class="grand"><td>TOTAL</td><td class="r">₹${money(p.total, 2)}</td></tr>
-    ${held ? "" : `<tr><td>Paid by</td><td class="r">${escapeHtml(tenders || TENDER_LABEL[pay.mode] || pay.mode || "-")}</td></tr>`}
-    ${pay.dueAmount ? `<tr><td><b>Balance Due</b></td><td class="r"><b>₹${money(pay.dueAmount, 2)}</b></td></tr>` : ""}
+
+  <table style="margin-top:4px">
+    ${line("SUB TOTAL", money(p.subtotal, 2))}
+    ${p.discount ? line(`DISCOUNT${p.couponCode ? ` (${escapeHtml(p.couponCode)})` : ""}`, `-${money(p.discount, 2)}`) : ""}
+    ${p.tax ? line("GST", money(p.tax, 2)) : ""}
+    ${p.additionalCharges ? line("ADD. CHARGES", money(p.additionalCharges, 2)) : ""}
+    ${line("ROUND OFF", `${p.roundOff > 0 ? "+" : ""}${money(p.roundOff || 0, 2)}`)}
+    <tr class="grand"><td>TOTAL</td><td class="sep">:</td><td class="r">${money(p.total, 2)}</td></tr>
+    ${held ? "" : tenderLines}
   </table>
-  ${r.remarks ? `<hr><div class="muted">Remarks: ${escapeHtml(r.remarks)}</div>` : ""}
   <hr>
-  <div class="c muted">Thank you, visit again</div>
+
+  <table class="muted">
+    ${line("NO OF QTY", Number(r.totalQuantity || 0).toFixed(3))}
+    ${held ? "" : line("TENDERED", money(pay.tendered || 0, 2))}
+    ${held ? "" : line("CHANGE", money(pay.changeGiven || 0, 2))}
+    ${pay.dueAmount ? line("BALANCE DUE", money(pay.dueAmount, 2), true) : ""}
+  </table>
+  <hr>
+
+  <div class="muted b">${escapeHtml(amountInWords(p.total))}</div>
+  ${store.state ? `<div class="muted">Place of Supply : ${escapeHtml(store.state)}</div>` : ""}
+
+  ${taxRows
+      ? `<div class="c b" style="margin-top:4px;font-size:10px">TAX SUMMARY</div>
+  <table class="tax">
+    <thead><tr><th>TAXABLE VALUE</th><th>CGST</th><th>SGST</th><th>Cess</th><th>IGST</th></tr></thead>
+    <tbody>${taxRows}</tbody>
+  </table>`
+      : ""}
+
+  ${r.remarks ? `<div class="muted" style="margin-top:4px">Remarks : ${escapeHtml(r.remarks)}</div>` : ""}
+
+  <div class="c" style="margin-top:6px">${barcodeSvg(r.billNo)}</div>
+  <div class="c muted">Thank you for shopping with us</div>
+  <hr>
+  <div class="foot"><span>Printed On : ${billDate(new Date())} ${billTime(new Date())}</span><span>E&amp;OE</span></div>
   <script>window.onload = function () { window.print(); };</script>
 </body></html>`
 }
