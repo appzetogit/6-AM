@@ -198,6 +198,80 @@ describe('a counter sale', () => {
         assert.equal(txn.paymentMethod, 'cash');
     });
 
+    it('keeps the card details the counter captured', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 100, gstRate: 0 });
+
+        const { order, receipt } = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 2)],
+            paymentMode: 'card',
+            tenders: [{
+                mode: 'card',
+                amount: 200,
+                bankAccount: 'Corner Store · ••••4321',
+                customerBank: 'HDFC Bank',
+                cardHolder: 'R Kumar',
+                transactionNo: 'TXN99881'
+            }]
+        });
+
+        const [tender] = (await FoodOrder.findById(order._id).lean()).pos.tenders;
+        assert.equal(tender.transactionNo, 'TXN99881', 'a chargeback is traced by this');
+        assert.equal(tender.cardHolder, 'R Kumar');
+        assert.equal(tender.customerBank, 'HDFC Bank');
+        assert.equal(tender.bankAccount, 'Corner Store · ••••4321');
+        assert.equal(receipt.payment.tenders[0].transactionNo, 'TXN99881', 'and it prints on the bill');
+    });
+
+    it('does not hang card details off a cash tender', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 100, gstRate: 0 });
+
+        const { order } = await pos.createPosOrder(shop._id, {
+            items: [line(milk)],
+            paymentMode: 'cash',
+            tenders: [{ mode: 'cash', amount: 100, cardHolder: 'Nobody', transactionNo: 'TXN1' }]
+        });
+        const [tender] = (await FoodOrder.findById(order._id).lean()).pos.tenders;
+        assert.equal(tender.cardHolder, '', 'a cash line carrying a card holder is a client bug, not data');
+        assert.equal(tender.transactionNo, '');
+    });
+
+    it('leaves a due when the card takes less than the bill, and refuses to over-charge one', async () => {
+        const shop = await makeShop();
+        const milk = await makeProduct(shop._id, { price: 100, gstRate: 0 });
+
+        // Part on plastic, the rest owed — same rule as any short payment.
+        const part = await pos.createPosOrder(shop._id, {
+            items: [line(milk, 3)],
+            customerPhone: '9855555555',
+            paymentMode: 'card',
+            tenders: [{ mode: 'card', amount: 200, transactionNo: 'TXNPART' }]
+        });
+        const saved = await FoodOrder.findById(part.order._id).lean();
+        assert.equal(saved.pos.dueAmount, 100);
+        assert.equal(saved.payment.status, 'cod_pending');
+        assert.equal(saved.pos.tenders[0].amount, 200);
+
+        // And a card cannot hand back change, so it cannot be over-charged.
+        await expectError(
+            () => pos.createPosOrder(shop._id, {
+                items: [line(milk)], paymentMode: 'card', tenders: [{ mode: 'card', amount: 500 }]
+            }),
+            'more than the',
+            assert
+        );
+
+        // A short card payment with nobody to owe it is refused outright.
+        await expectError(
+            () => pos.createPosOrder(shop._id, {
+                items: [line(milk, 3)], paymentMode: 'card', tenders: [{ mode: 'card', amount: 50 }]
+            }),
+            'named customer',
+            assert
+        );
+    });
+
     it('records a card or UPI tender as paid without touching the gateway', async () => {
         const shop = await makeShop();
         const milk = await makeProduct(shop._id, { price: 50 });
