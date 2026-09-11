@@ -53,6 +53,13 @@ const toDateInput = (date) => {
 
 const errMsg = (err, fallback) => err?.response?.data?.message || err?.message || fallback
 
+/** "07:00" → "7:00 AM", so a slot reads the way the customer sees it. */
+const prettyTime = (hhmm) => {
+  const [h, m] = String(hhmm || "").split(":").map(Number)
+  if (!Number.isFinite(h)) return hhmm || ""
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`
+}
+
 const labelCls = "mb-1.5 block text-xs font-medium text-neutral-600"
 const fieldCls =
   "h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none focus:border-pink-400 disabled:bg-neutral-50 disabled:text-neutral-400"
@@ -72,6 +79,9 @@ const emptyForm = {
   daysOfWeek: [],
   dayOfMonth: 1,
   deliveryTime: "06:00",
+  // Empty means the plain time above is being used — which is how this form
+  // worked before slots existed, and still how it works where none are set up.
+  deliverySlotId: "",
   startDate: toDateInput(new Date()),
   addressId: "",
   paymentMethod: "cash",
@@ -87,6 +97,7 @@ export default function AddSubscriptionDialog({ open, onOpenChange, onCreated })
   const [restaurants, setRestaurants] = useState([])
   const [products, setProducts] = useState([])
   const [productsLoading, setProductsLoading] = useState(false)
+  const [slots, setSlots] = useState([])
 
   const set = useCallback((patch) => setForm((f) => ({ ...f, ...patch })), [])
 
@@ -104,6 +115,23 @@ export default function AddSubscriptionDialog({ open, onOpenChange, onCreated })
       .then((r) => setRestaurants(r?.data?.data?.restaurants || r?.data?.restaurants || []))
       .catch((err) => toast.error(errMsg(err, "Could not load stores")))
   }, [open])
+
+  // The windows on offer. A shop with none configured keeps the plain time
+  // field, so this form does not become unusable by adding slots to the system.
+  useEffect(() => {
+    if (!open) return
+    adminAPI
+      .getDeliverySlots()
+      .then((r) => {
+        const list = r?.data?.data?.slots || []
+        setSlots(list)
+        // Pre-pick the first window rather than opening on "Custom time",
+        // which would leave the slot list looking optional when it is the
+        // way the shop means deliveries to be booked.
+        if (list.length) set({ deliverySlotId: list[0].id })
+      })
+      .catch(() => setSlots([]))
+  }, [open, set])
 
   // Addresses belong to the customer, so they can only be loaded once one is picked.
   useEffect(() => {
@@ -165,7 +193,9 @@ export default function AddSubscriptionDialog({ open, onOpenChange, onCreated })
         itemId: form.itemId,
         quantity: Number(form.quantity),
         frequency: form.frequency,
-        deliveryTime: form.deliveryTime,
+        ...(form.deliverySlotId
+          ? { deliverySlotId: form.deliverySlotId }
+          : { deliveryTime: form.deliveryTime }),
         startDate: form.startDate,
         addressId: form.addressId,
         paymentMethod: form.paymentMethod,
@@ -331,12 +361,29 @@ export default function AddSubscriptionDialog({ open, onOpenChange, onCreated })
 
               <div>
                 <span className={labelCls}>Delivery time</span>
-                <input
-                  type="time"
-                  className={fieldCls}
-                  value={form.deliveryTime}
-                  onChange={(e) => set({ deliveryTime: e.target.value })}
-                />
+                {slots.length > 0 ? (
+                  <select
+                    className={fieldCls}
+                    data-testid="subscription-slot"
+                    value={form.deliverySlotId}
+                    onChange={(e) => set({ deliverySlotId: e.target.value })}
+                  >
+                    {slots.map((slot) => (
+                      <option key={slot.id} value={slot.id}>
+                        {slot.label} ({prettyTime(slot.startTime)} – {prettyTime(slot.endTime)})
+                      </option>
+                    ))}
+                    <option value="">Custom time…</option>
+                  </select>
+                ) : null}
+                {slots.length === 0 || !form.deliverySlotId ? (
+                  <input
+                    type="time"
+                    className={slots.length > 0 ? `${fieldCls} mt-2` : fieldCls}
+                    value={form.deliveryTime}
+                    onChange={(e) => set({ deliveryTime: e.target.value })}
+                  />
+                ) : null}
               </div>
             </div>
 
