@@ -37,8 +37,9 @@ const dayString = (offset = 0) => {
  * Only the three fields the capacity aggregate reads matter, and a fully valid
  * order would need a shop, items and a priced cart to say nothing about slots.
  */
-const bookInto = (slotId, when, status = 'created') =>
+const bookInto = (slotId, when, status = 'created', _id = someId()) =>
     FoodOrder.collection.insertOne({
+        _id,
         deliverySlot: { slotId },
         scheduledAt: when,
         orderStatus: status
@@ -160,6 +161,106 @@ describe('the slots a customer sees for a day', () => {
 
         const { slots: offered } = await slots.getAvailableSlots({ date: dayString(2) });
         assert.equal(offered[0].booked, 0, 'tomorrow being full says nothing about the day after');
+    });
+});
+
+describe('the last place in a window', () => {
+    /**
+     * The reason this exists: capacity used to be checked by counting orders and
+     * then writing one. Two customers paying in the same second both counted
+     * one short of full, both were let in, and the window carried one more
+     * order than the van does.
+     */
+    it('goes to exactly one of two customers paying at the same moment', async () => {
+        const { slot } = await makeSlot({ capacity: 1 });
+        const tomorrow = dayString(1);
+        const slotId = (await FoodDeliverySlot.findById(slot.id).lean())._id;
+        const day = new Date(`${tomorrow}T00:00:00`);
+
+        const both = await Promise.all([
+            slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: someId() }),
+            slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: someId() })
+        ]);
+
+        assert.deepEqual(both.filter(Boolean).length, 1, 'exactly one claim should succeed');
+        assert.deepEqual(both.filter((ok) => !ok).length, 1, 'the other must be told it is full');
+    });
+
+    it('lets in exactly as many as the window carries, however they arrive', async () => {
+        const { slot } = await makeSlot({ capacity: 3 });
+        const slotId = (await FoodDeliverySlot.findById(slot.id).lean())._id;
+        const day = new Date(`${dayString(1)}T00:00:00`);
+
+        const claims = await Promise.all(
+            Array.from({ length: 8 }, () =>
+                slots.claimSlotSeat({ slotId, day, capacity: 3, orderId: someId() })
+            )
+        );
+        assert.equal(claims.filter(Boolean).length, 3);
+    });
+
+    it('gives the place back when the order it was taken for never happened', async () => {
+        const { slot } = await makeSlot({ capacity: 1 });
+        const slotId = (await FoodDeliverySlot.findById(slot.id).lean())._id;
+        const day = new Date(`${dayString(1)}T00:00:00`);
+        const abandoned = someId();
+
+        assert.equal(await slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: abandoned }), true);
+        assert.equal(await slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: someId() }), false);
+
+        await slots.releaseSlotSeat({ slotId, day, orderId: abandoned });
+        assert.equal(await slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: someId() }), true);
+    });
+
+    it('is never refused to a standing arrangement, which takes its place anyway', async () => {
+        const { slot } = await makeSlot({ capacity: 1 });
+        const slotId = (await FoodDeliverySlot.findById(slot.id).lean())._id;
+        const day = new Date(`${dayString(1)}T00:00:00`);
+
+        assert.equal(await slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: someId() }), true);
+        // The window it subscribed to was agreed long before today's orders.
+        assert.equal(
+            await slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: someId(), unconditional: true }),
+            true
+        );
+        // And now it is over-full, so the next one-off booking is turned away.
+        assert.equal(await slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: someId() }), false);
+    });
+
+    it('frees a cancelled order’s place on the next read', async () => {
+        const { slot } = await makeSlot({ capacity: 1 });
+        const tomorrow = dayString(1);
+        const slotId = (await FoodDeliverySlot.findById(slot.id).lean())._id;
+        const day = new Date(`${tomorrow}T00:00:00`);
+
+        const orderId = someId();
+        await bookInto(slotId, new Date(`${tomorrow}T07:00:00`), 'created', orderId);
+        await slots.claimSlotSeat({ slotId, day, capacity: 1, orderId });
+        assert.equal((await slots.getAvailableSlots({ date: tomorrow })).slots[0].available, false);
+
+        await FoodOrder.collection.updateOne({ _id: orderId }, { $set: { orderStatus: 'cancelled_by_user' } });
+
+        // Reading the day is what repairs the ledger, so the place is back.
+        const after = await slots.getAvailableSlots({ date: tomorrow });
+        assert.equal(after.slots[0].booked, 0);
+        assert.equal(after.slots[0].available, true);
+        assert.equal(await slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: someId() }), true);
+    });
+
+    it('counts an order that took the window without claiming a place', async () => {
+        // A subscription occurrence written straight into the window, or an
+        // order from before this ledger existed. Reading adopts it, so the next
+        // booking is measured against it.
+        const { slot } = await makeSlot({ capacity: 1 });
+        const tomorrow = dayString(1);
+        const slotId = (await FoodDeliverySlot.findById(slot.id).lean())._id;
+        const day = new Date(`${tomorrow}T00:00:00`);
+        await bookInto(slotId, new Date(`${tomorrow}T07:00:00`));
+
+        const listed = await slots.getAvailableSlots({ date: tomorrow });
+        assert.equal(listed.slots[0].booked, 1);
+        assert.equal(listed.slots[0].available, false);
+        assert.equal(await slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: someId() }), false);
     });
 });
 
