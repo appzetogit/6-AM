@@ -50,12 +50,16 @@ export default function PosTopBar({
   }
 
   return (
-    <header className="flex items-center gap-4 bg-[#eaf1f8] px-3 py-1.5 text-sm">
+    // Wraps to a second line rather than squeezing everything on one. This bar
+    // carries a lot, and a flex row that cannot fit compresses its children
+    // instead of breaking — which is what turned the order-type pills into a
+    // vertical stack on anything under a 1400px window.
+    <header className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-[#eaf1f8] px-3 py-1.5 text-sm">
       <button type="button" className={iconBtn} onClick={() => navigate("/seller/dashboard")} title="Back to dashboard">
         <PanelLeft size={18} />
       </button>
 
-      <div className="flex items-center gap-2 min-w-[110px]">
+      <div className="flex shrink-0 items-center gap-2">
         {logoUrl ? <img src={logoUrl} alt="" className="h-7 w-auto object-contain" /> : null}
         <span className="text-xl font-extrabold tracking-tight text-[#2b3a67]">{companyName}<span className="text-sky-500">.</span></span>
       </div>
@@ -64,7 +68,9 @@ export default function PosTopBar({
           same choice-of-one control, and the one the panel already uses.
           Buttons carry the radio roles themselves so dropping the real inputs
           does not drop what a screen reader is told. */}
-      <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Order type">
+      {/* shrink-0 and no wrap: these four stay side by side or the bar wraps
+          around them. Squeezed, they stack one per line and eat the screen. */}
+      <div className="flex shrink-0 items-center gap-2" role="radiogroup" aria-label="Order type">
         {ORDER_TYPES.map((t) => {
           const active = orderType === t.value
           return (
@@ -89,7 +95,9 @@ export default function PosTopBar({
         <select
           value={salesman}
           onChange={(e) => onSalesman(e.target.value)}
-          className="h-8 min-w-[180px] rounded border border-gray-300 bg-white px-2 text-sm text-gray-700 outline-none"
+          // The one field that can give way before the bar wraps — a salesman
+          // name truncates legibly, a pill cut in half does not.
+          className="h-8 w-[180px] min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 text-sm text-gray-700 outline-none"
         >
           {salesmen.map((s) => (
             <option key={s} value={s}>{s}</option>
@@ -113,7 +121,7 @@ export default function PosTopBar({
         <Headset size={18} className="text-gray-500" /> Support Desk
       </button>
 
-      <div className="ml-auto flex items-center gap-0.5">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <span className={iconBtn} title={online ? "Online" : "Offline — sales will fail until the connection is back"}>
           {online ? <Wifi size={18} className="text-emerald-500" /> : <WifiOff size={18} className="text-red-500" />}
         </span>
