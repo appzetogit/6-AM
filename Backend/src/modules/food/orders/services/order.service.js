@@ -45,6 +45,7 @@ import { normalizeDeliveryAddress } from '../../shared/geo.utils.js';
 import * as dispatchService from './order-dispatch.service.js';
 import * as deliveryService from './order-delivery.service.js';
 import * as paymentService from './order-payment.service.js';
+import { resolveSlotForOrder, slotStartOn } from '../../admin/services/deliverySlot.service.js';
 import {
   enqueueOrderEvent,
   haversineKm,
@@ -477,8 +478,29 @@ export async function createOrder(userId, dto) {
     const restaurantId = toObjectId(dto.restaurantId, 'Restaurant ID');
     const restaurant = await loadRestaurantForOrdering(restaurantId);
 
-    const orderAt = dto.scheduledAt ? new Date(dto.scheduledAt) : new Date();
-    if (dto.scheduledAt && Number.isNaN(orderAt.getTime())) {
+    // A booked slot decides when the order is for; the client sends the slot,
+    // not a time, so a screen cannot ask for a window the shop closed an hour
+    // ago. No slot means instant, which is the path this has always taken.
+    const booking = dto.deliverySlotId
+      ? await resolveSlotForOrder(dto.deliverySlotId, { date: dto.deliveryDate })
+      : dto.deliverySlotSnapshot
+        // A subscription's occurrence coming due. The window was agreed when
+        // they subscribed, so it is recorded rather than re-checked — a slot
+        // retired since then must not stop a standing delivery. The caller
+        // passes the day; the time comes from the window, so the order lands
+        // in it rather than reading as an instant order.
+        ? {
+          scheduledAt: slotStartOn(
+            dto.scheduledAt || new Date(),
+            dto.deliverySlotSnapshot.startTime
+          ),
+          deliverySlot: dto.deliverySlotSnapshot
+        }
+        : null;
+
+    const scheduledFor = booking ? booking.scheduledAt : dto.scheduledAt;
+    const orderAt = scheduledFor ? new Date(scheduledFor) : new Date();
+    if (scheduledFor && Number.isNaN(orderAt.getTime())) {
       throw new ValidationError('Invalid scheduled time');
     }
     // Outlet hours gate the app. Someone ringing up a sale at the till is, by
@@ -762,7 +784,8 @@ export async function createOrder(userId, dto) {
       deliveryInstructions: String(dto.deliveryInstructions || ""),
       sendCutlery: dto.sendCutlery !== false,
       deliveryFleet: String(dto.deliveryFleet || "standard"),
-      scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+      scheduledAt: scheduledFor ? new Date(scheduledFor) : null,
+      ...(booking ? { deliverySlot: booking.deliverySlot } : {}),
       riderEarning: Number(riderEarning) || 0,
       platformProfit: Number(platformProfit) || 0,
     });
