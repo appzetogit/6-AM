@@ -16,6 +16,7 @@ import * as feedbackExperienceController from '../controllers/feedbackExperience
 import * as notificationBroadcastController from '../controllers/notificationBroadcast.controller.js';
 import * as diningAdminController from '../../dining/controllers/diningAdmin.controller.js';
 import * as subscriptionBillingController from '../controllers/subscriptionBilling.controller.js';
+import * as deliverySlotController from '../controllers/deliverySlot.controller.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
 import { listUserCartsAdminController, getUserCartPricingAdminController } from '../controllers/userCartAdmin.controller.js';
 import { getAdminPageController, upsertAdminPageController } from '../controllers/pageContent.controller.js';
@@ -99,6 +100,10 @@ const resolveSectionFromRequest = (path = '', method = '') => {
     // Subscriptions turn into orders, and the people who work the delivery board
     // are the people who work orders.
     if (path.startsWith('/product-subscriptions') || path.startsWith('/subscription-deliveries')) return 'order_management';
+    // Before the /delivery catch-all below, which would otherwise swallow it:
+    // slots are a system-wide setting, like fees and feature flags, not part of
+    // managing riders.
+    if (path.startsWith('/delivery-slots')) return 'system_settings';
     if (path.startsWith('/delivery')) return 'delivery_management';
     if (path.startsWith('/withdrawals')) return 'transaction_management';
     if (path.startsWith('/feedback-experiences')) return 'report_management';
@@ -375,6 +380,12 @@ router.post('/foods/bulk-approve', adminController.bulkApproveFoodItems);
 
 
 // ----- Offers & Coupons -----
+// ----- Delivery slots -----
+router.get('/delivery-slots', deliverySlotController.listSlotsController);
+router.post('/delivery-slots', deliverySlotController.createSlotController);
+router.patch('/delivery-slots/:slotId', deliverySlotController.updateSlotController);
+router.delete('/delivery-slots/:slotId', deliverySlotController.deleteSlotController);
+
 router.get('/offers', adminController.getAllOffers);
 router.post('/offers', adminController.createAdminOffer);
 router.post('/offers/monthly/run', adminController.runMonthlyOfferSweep);
