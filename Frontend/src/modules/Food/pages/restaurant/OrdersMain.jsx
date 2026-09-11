@@ -215,6 +215,12 @@ function ScheduledOrders({ onSelectOrder, refreshToken = 0, searchQuery = "" }) 
           type: "Home Delivery",
           tableOrToken: null,
           scheduledAt: order.scheduledAt,
+          // The window the customer booked, when they booked one. Snapshotted
+          // on the order, so it still reads correctly after the slot is
+          // renamed or retired.
+          slotLabel: order.deliverySlot?.label || "",
+          slotStart: order.deliverySlot?.startTime || "",
+          slotEnd: order.deliverySlot?.endTime || "",
           timePlaced: new Date(order.createdAt).toLocaleTimeString("en-US", {
             hour: "2-digit",
             minute: "2-digit",
@@ -300,6 +306,16 @@ function ScheduledOrders({ onSelectOrder, refreshToken = 0, searchQuery = "" }) 
                       minute: "2-digit",
                     })}
                   </p>
+                  {/* The window the customer was promised, in their words. The
+                      time above is when it starts; this is what they were told. */}
+                  {order.slotLabel ? (
+                    <p className="mt-0.5 text-[11px] text-gray-500">
+                      {order.slotLabel}
+                      {order.slotStart && order.slotEnd
+                        ? ` · ${order.slotStart}–${order.slotEnd}`
+                        : ""}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </button>
