@@ -68,6 +68,32 @@ import {
  */
 const DISPATCH_LEAD_MS = 30 * 60 * 1000;
 
+/**
+ * "tomorrow between 07:00 and 08:00" — the window an order is booked into,
+ * while it is still in the future.
+ *
+ * A seller can accept a booking long before its window, and "is starting to
+ * prepare it" for something due tomorrow is a message that reads as a mistake.
+ */
+const bookedWindowPhrase = (order) => {
+  const at = order?.scheduledAt ? new Date(order.scheduledAt) : null;
+  if (!at || Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) return '';
+
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const sameDay = (a, b) => a.toDateString() === b.toDateString();
+  const day = sameDay(at, today)
+    ? 'today'
+    : sameDay(at, tomorrow)
+      ? 'tomorrow'
+      : `on ${at.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+
+  const slot = order?.deliverySlot;
+  if (slot?.startTime && slot?.endTime) return `${day} between ${slot.startTime} and ${slot.endTime}`;
+  return `${day} at ${at.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+};
+
 const localDayOf = (at) => {
   const d = new Date(at);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -2095,9 +2121,12 @@ export async function updateOrderStatusRestaurant(
   let title = `Order ${order._id.toString()} updated`;
   let body = `Status changed to ${String(orderStatus).replace(/_/g, " ")}`;
 
+  const bookedFor = bookedWindowPhrase(order);
   if (orderStatus === "confirmed") {
     title = "Order Accepted! 🧑‍🍳";
-    body = "The restaurant has accepted your order and is starting to prepare it.";
+    body = bookedFor
+      ? `The restaurant has accepted your order. It will arrive ${bookedFor}.`
+      : "The restaurant has accepted your order and is starting to prepare it.";
   } else if (orderStatus === "preparing") {
     title = "Food is being prepared! 🍳";
     body = "Your food is currently being prepared by the restaurant.";
@@ -2853,9 +2882,12 @@ export async function updateOrderStatusAdmin(orderId, orderStatus, note = "", ad
     let title = `Order Status Updated 📋`;
     let body = `Order #${order.order_id || order._id} status changed to ${String(orderStatus).replace(/_/g, " ")} by support.`;
 
+    const bookedFor = bookedWindowPhrase(order);
     if (orderStatus === "confirmed") {
         title = "Order Accepted! 🧑‍🍳";
-        body = "The order has been accepted and is starting to be prepared.";
+        body = bookedFor
+            ? `The order has been accepted. It will arrive ${bookedFor}.`
+            : "The order has been accepted and is starting to be prepared.";
     } else if (orderStatus === "preparing") {
         title = "Food is being prepared! 🍳";
         body = "Your food is currently being prepared by the restaurant.";
