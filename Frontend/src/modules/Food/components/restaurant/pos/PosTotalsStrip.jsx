@@ -28,7 +28,11 @@ export default function PosTotalsStrip({
   const discount = p ? p.discount : totals.lineDiscount
 
   return (
-    <div className="grid grid-cols-8 items-stretch border-y border-gray-200 bg-white">
+    // Nine cells, nine columns. It was eight, so Amount — the one figure the
+    // cashier and the customer both look at — was pushed into a fraction of a
+    // column and the col-start-9 meant to rescue it referred to a column that
+    // did not exist.
+    <div className="grid grid-cols-9 items-stretch border-y border-gray-200 bg-white">
       <div className={cell}>
         <label className="relative inline-block h-6 w-12" title="No loyalty programme is set up in this system yet">
           <input type="checkbox" className="peer sr-only" checked={Boolean(earnLoyalty)} readOnly disabled />
@@ -107,7 +111,7 @@ export default function PosTotalsStrip({
         <span className={label}>Round OFF</span>
       </div>
 
-      <div className="col-span-8 -mt-px flex items-center justify-end gap-3 border-t border-gray-200 px-4 py-1 xl:col-span-1 xl:col-start-9 xl:mt-0 xl:border-t-0 xl:flex-col xl:justify-center xl:gap-0">
+      <div className={cell}>
         <span className="text-[34px] font-semibold leading-none text-sky-500">{quoting && !p ? "…" : money(amount, 0)}</span>
         <span className={label}>Amount</span>
       </div>
