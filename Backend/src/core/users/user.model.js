@@ -33,6 +33,11 @@ const userAddressSchema = new mongoose.Schema(
             default: '',
             trim: true
         },
+        country: {
+            type: String,
+            trim: true,
+            default: 'India'
+        },
         city: {
             type: String,
             required: true,
@@ -122,6 +127,38 @@ const userSchema = new mongoose.Schema(
             enum: ['male', 'female', 'other', 'prefer-not-to-say', ''],
             default: ''
         },
+        /**
+         * WhatsApp number, when it differs from the one they sign in with.
+         * Kept separate rather than assumed equal to `phone`: order updates go
+         * to whichever the customer actually reads, and at a counter they are
+         * often told two different numbers.
+         */
+        whatsappPhone: {
+            type: String,
+            trim: true,
+            default: ''
+        },
+        whatsappCountryCode: {
+            type: String,
+            trim: true,
+            default: '+91'
+        },
+        /**
+         * GST standing, for a customer who buys against their business. An
+         * unregistered buyer is the default and needs no GSTIN; a registered
+         * one is invoiced with theirs on the bill.
+         */
+        gstType: {
+            type: String,
+            enum: ['unregistered', 'registered', 'composition'],
+            default: 'unregistered'
+        },
+        gstin: {
+            type: String,
+            trim: true,
+            uppercase: true,
+            default: ''
+        },
         referralCode: {
             type: String
         },
@@ -169,6 +206,27 @@ const userSchema = new mongoose.Schema(
         timestamps: true
     }
 );
+
+/**
+ * Drops a location that has no position before it reaches the index.
+ *
+ * `location.type` defaults to 'Point', so an address saved without
+ * coordinates — a counter customer whose address was typed, not picked off a
+ * map — arrives as `{ type: 'Point' }` with nothing in it, and the 2dsphere
+ * index refuses the whole document: "Can't extract geo keys". The address is
+ * legitimate; only the half-built Point is not, so it goes rather than the
+ * save failing. An address with no pin reads back with no location at all,
+ * which is exactly how the rows written before coordinates existed look.
+ */
+userSchema.pre('validate', function dropEmptyAddressPoints(next) {
+    for (const address of this.addresses || []) {
+        const coords = address?.location?.coordinates;
+        if (!Array.isArray(coords) || coords.length !== 2) {
+            address.set('location', undefined);
+        }
+    }
+    next();
+});
 
 userSchema.index({ phone: 1 }, { unique: true });
 userSchema.index({ 'addresses.location': '2dsphere' });
