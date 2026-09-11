@@ -6,6 +6,7 @@ import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js'
 import { createOrder } from '../../orders/services/order.service.js';
 import { calculateOrderPricing } from '../../orders/services/order-pricing.service.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
+import { logger } from '../../../../utils/logger.js';
 import { nextSequence } from '../../admin/models/counter.model.js';
 import { resolveOrderCartItems } from '../../orders/helpers/order-cart-items.helper.js';
 import {
@@ -367,6 +368,33 @@ export async function createPosOrder(restaurantId, dto = {}) {
             changeGiven
         }
     });
+
+    // The tenders were checked against the quote; the order is priced again on
+    // the way in. Those two must agree, and when they have not it was because
+    // an input the quote honoured did not survive the write — which marked a
+    // bill settled for less than it was worth. Reconcile against the order's
+    // own total rather than trusting the quote, so a future drift costs a
+    // visible balance instead of quiet money.
+    const charged = round2(result?.order?.pricing?.total);
+    if (Math.abs(charged - total) > 0.01) {
+        const received = round2(tenders.reduce((sum, t) => sum + t.amount, 0));
+        const realDue = round2(Math.max(0, charged - received));
+        logger.error(
+            `[pos] quote said ₹${total} but the order priced at ₹${charged} for restaurant ${restaurantId}; ` +
+            `reconciled the balance to ₹${realDue}`
+        );
+        await FoodOrder.updateOne(
+            { _id: result.order._id },
+            {
+                $set: {
+                    'pos.dueAmount': realDue,
+                    'pos.changeGiven': round2(Math.max(0, received - charged)),
+                    'payment.amountDue': realDue,
+                    'payment.status': realDue > 0 ? 'cod_pending' : 'paid'
+                }
+            }
+        );
+    }
 
     // The bill number is the order number; kept on the pos block so it
     // survives any future renumbering of order_id.
