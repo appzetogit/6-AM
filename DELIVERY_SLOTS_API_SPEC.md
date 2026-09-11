@@ -235,6 +235,11 @@ surface — but it is not in progress, and the usual treatment reads as broken:
 - **Do not render hours as a minute count.** A booking is hundreds of minutes out;
   show the window time instead.
 
+This applies on every surface that shows an order, not just the live one: the tracking
+screen, the orders list, and the push copy. The acceptance push on a booking names the
+window — "It will arrive tomorrow between 07:00 and 08:00" — rather than saying the
+food is being prepared, because a seller can accept a booking a day ahead.
+
 Refunds are unaffected: cancelling a booking refunds in full, with no time-based fee.
 
 ### Errors
@@ -495,6 +500,9 @@ UI and the result read back out of the database.
 | 51 | Same for an instant order beside it | `Order confirmed`, 34 min — unchanged | browser |
 | 52 | Rider-facing clocks on a booking | all start at dispatch, which is deferred to the window | code read |
 | 53 | Refund on a cancelled booking | full amount, no elapsed-time fee | code read |
+| 54 | Tracking screen, orders list and dock | one shared countdown, no longer three copies | browser |
+| 55 | A window already past | treated as an ordinary order again | browser |
+| 56 | Acceptance push on a booking | names the window instead of "starting to prepare it" | code read |
 
 Backend suite at the time of writing: 201 tests, all passing
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
