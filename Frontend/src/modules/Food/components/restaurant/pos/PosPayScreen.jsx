@@ -39,14 +39,17 @@ export default function PosPayScreen({ quote, customer, bankAccount, busy, onBac
   const remove = (i) => setRows((rs) => (rs.length === 1 ? rs : rs.filter((_, idx) => idx !== i)))
   const addRow = () => setRows((rs) => [...rs, { mode: rs.some((r) => r.mode === "upi") ? "card" : "upi", amount: String(due || 0), holder: "", txn: "", account: "" }])
 
+  // Card fields travel as their own keys, not folded into a note: the
+  // transaction number is what a chargeback is traced by, and it should not
+  // have to be parsed back out of a sentence.
   const proceed = () =>
     onProceed(
       rows.map((r) => ({
         mode: r.mode,
         amount: round2(r.amount),
-        note: r.mode === "card"
-          ? [r.holder && `Card holder: ${r.holder}`, r.txn && `Txn: ${r.txn}`, r.account && `Account: ${r.account}`].filter(Boolean).join(" · ")
-          : "",
+        ...(r.mode === "card"
+          ? { bankAccount: r.account, cardHolder: r.holder, transactionNo: r.txn }
+          : {}),
       })),
     )
 
