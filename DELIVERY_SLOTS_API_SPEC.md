@@ -154,6 +154,15 @@ booking is only confirmed at this point, never at the moment the customer taps i
 
 Omit both fields for an instant order.
 
+### Do not gate a window on the shop's opening hours
+
+A booked window is not measured against the shop's counter hours, on either
+side — a 7–8 AM round exists precisely because the counter is shut at 7am, so
+checking one against the other makes every early slot pickable but unorderable.
+If your screen disables checkout while the shop reads as closed, **skip that
+check when a slot is selected**; keep it for instant orders, which really do
+depend on the shop being open now.
+
 ### What comes back
 
 A slot-booked order:
@@ -410,6 +419,9 @@ UI and the result read back out of the database.
 | 28 | Three checkouts at once for a one-place window | one order placed, two `This slot is full` | dev script |
 | 29 | Concurrent claims on a capped window | never more than the capacity let in | tests |
 | 30 | Cancelled order's place | freed on the next read of that day | tests |
+| 31 | 7–8 AM window on a shop opening at 09:00 | ordered through the cart UI and placed | browser |
+| 32 | Window label on the seller's Scheduled tab | `12 Sept, 07:00 am · Morning 7-8 AM · 07:00–08:00` | browser |
+| 33 | Order naming a slot that was later deleted outright | still read its window correctly | browser |
 
 Backend suite at the time of writing: 176 tests, all passing
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
