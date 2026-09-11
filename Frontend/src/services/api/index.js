@@ -1920,6 +1920,8 @@ export const restaurantAPI = {
     apiClient.get("/food/restaurant/pos/holds", { contextModule: "restaurant" }),
   posHold: (body = {}) =>
     apiClient.post("/food/restaurant/pos/holds", body, { contextModule: "restaurant" }),
+  posHeldBill: (heldId) =>
+    apiClient.get(`/food/restaurant/pos/holds/${String(heldId)}`, { contextModule: "restaurant" }),
   posResumeHold: (heldId) =>
     apiClient.post(`/food/restaurant/pos/holds/${String(heldId)}/resume`, {}, { contextModule: "restaurant" }),
   posDiscardHold: (heldId) =>
