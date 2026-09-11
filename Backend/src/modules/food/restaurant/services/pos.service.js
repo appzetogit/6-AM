@@ -525,6 +525,142 @@ export async function searchPosCustomers(restaurantId, query = '', limit = 10) {
         .map((u) => ({ id: String(u._id), name: u.name || '', phone: u.phone || '' }));
 }
 
+const GST_TYPES = ['unregistered', 'registered', 'composition'];
+/** 22AAAAA0000A1Z5 — two digits, five letters, four digits, letter, digit/letter, Z, digit/letter. */
+const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/;
+
+/**
+ * Is this number already somebody's?
+ *
+ * What the dialog's Verify link asks. At a counter the same customer is
+ * entered again and again under slightly different names; saying "this is
+ * already Ravi Kumar" before the form is filled in is the cheapest way to stop
+ * a duplicate, and phone is this system's unique key for a customer anyway.
+ */
+export async function lookupPosCustomer(phone) {
+    const digits = digitsOf(phone);
+    if (digits.length !== 10) throw new ValidationError('Enter a 10-digit mobile number');
+
+    const existing = await FoodUser.findOne({ phone: digits })
+        .select('name phone email whatsappPhone gstType gstin dateOfBirth anniversary addresses')
+        .lean();
+    if (!existing || isWalkInPhone(existing.phone)) return { exists: false };
+
+    const address = (existing.addresses || []).find((a) => a.isDefault) || existing.addresses?.[0] || null;
+    return {
+        exists: true,
+        customer: {
+            id: String(existing._id),
+            name: existing.name || '',
+            phone: existing.phone,
+            email: existing.email || '',
+            whatsappPhone: existing.whatsappPhone || '',
+            gstType: existing.gstType || 'unregistered',
+            gstin: existing.gstin || '',
+            dateOfBirth: existing.dateOfBirth || null,
+            anniversary: existing.anniversary || null,
+            addressLine1: address?.street || '',
+            country: address?.country || 'India',
+            state: address?.state || '',
+            city: address?.city || '',
+            pinCode: address?.zipCode || ''
+        }
+    };
+}
+
+/**
+ * Creates the customer the cashier just typed in, or updates the one that
+ * number already belongs to.
+ *
+ * Updates never blank a field the form left empty: the counter sees one
+ * screen's worth of a customer, and a cashier who did not retype an email
+ * meant "I do not have it", not "delete it".
+ *
+ * The address is optional and stored without a map pin, because one typed at a
+ * counter has no coordinates. That is now allowed — see the model's
+ * dropEmptyAddressPoints — but it does mean such an address cannot be
+ * delivered to until the customer picks it on a map in the app.
+ */
+export async function savePosCustomer(dto = {}) {
+    const name = String(dto.name || '').trim();
+    if (!name) throw new ValidationError('Name is required');
+
+    const phone = digitsOf(dto.phone);
+    if (phone.length !== 10) throw new ValidationError('Enter a 10-digit mobile number');
+
+    const whatsapp = digitsOf(dto.whatsappPhone);
+    if (whatsapp && whatsapp.length !== 10) throw new ValidationError('WhatsApp number must be 10 digits');
+
+    const gstType = String(dto.gstType || 'unregistered').trim().toLowerCase();
+    if (!GST_TYPES.includes(gstType)) throw new ValidationError(`GST type must be one of ${GST_TYPES.join(', ')}`);
+
+    const gstin = String(dto.gstin || '').trim().toUpperCase();
+    if (gstType !== 'unregistered' && !gstin) throw new ValidationError('A registered customer needs a GSTIN');
+    if (gstin && !GSTIN_PATTERN.test(gstin)) throw new ValidationError('That GSTIN is not in a valid format');
+
+    const email = String(dto.email || '').trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw new ValidationError('That email is not valid');
+
+    const asDate = (raw, label) => {
+        if (!raw) return null;
+        const d = new Date(raw);
+        if (Number.isNaN(d.getTime())) throw new ValidationError(`${label} is not a valid date`);
+        return d;
+    };
+
+    const customer = (await FoodUser.findOne({ phone })) || new FoodUser({ phone });
+
+    customer.name = name;
+    customer.countryCode = String(dto.countryCode || '+91').trim() || '+91';
+    customer.gstType = gstType;
+    // A customer moved back to unregistered keeps no stale GSTIN on their bills.
+    customer.gstin = gstType === 'unregistered' ? '' : gstin;
+    if (whatsapp) {
+        customer.whatsappPhone = whatsapp;
+        customer.whatsappCountryCode = String(dto.whatsappCountryCode || '+91').trim() || '+91';
+    }
+    if (email) customer.email = email;
+    const dob = asDate(dto.dateOfBirth, 'Date of birth');
+    if (dob) customer.dateOfBirth = dob;
+    const anniversary = asDate(dto.anniversary, 'Anniversary date');
+    if (anniversary) customer.anniversary = anniversary;
+
+    // An address needs a city and a state to be storable at all, so a partly
+    // filled one is kept off the record rather than half-written.
+    const line1 = String(dto.addressLine1 || '').trim();
+    const city = String(dto.city || '').trim();
+    const state = String(dto.state || '').trim();
+    if (line1 && city && state) {
+        const existing = (customer.addresses || []).find((a) => a.isDefault) || customer.addresses?.[0];
+        const fields = {
+            label: 'Home',
+            street: line1,
+            city,
+            state,
+            country: String(dto.country || 'India').trim() || 'India',
+            zipCode: String(dto.pinCode || '').trim(),
+            phone,
+            isDefault: true
+        };
+        if (existing) existing.set(fields);
+        else customer.addresses.push(fields);
+    }
+
+    await customer.save();
+
+    return {
+        customer: {
+            id: String(customer._id),
+            name: customer.name,
+            phone: customer.phone,
+            email: customer.email || '',
+            whatsappPhone: customer.whatsappPhone || '',
+            gstType: customer.gstType,
+            gstin: customer.gstin || ''
+        }
+    };
+}
+
 /** The "Customer Details" panel: this customer's history with this shop only. */
 export async function getPosCustomerSummary(restaurantId, userId) {
     if (!isId(userId)) throw new NotFoundError('Customer not found');
