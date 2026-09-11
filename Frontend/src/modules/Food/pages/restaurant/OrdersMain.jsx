@@ -1612,6 +1612,9 @@ export default function OrdersMain() {
               status: orderToQueue.status,
               createdAt: orderToQueue.createdAt,
               scheduledAt: orderToQueue.scheduledAt,
+              // The window the customer booked, so the accept card can say what
+              // they were promised rather than only when it is due.
+              deliverySlot: orderToQueue.deliverySlot || null,
               estimatedDeliveryTime: orderToQueue.estimatedDeliveryTime || 30,
               note: getRestaurantCookingNote(orderToQueue),
               sendCutlery: orderToQueue.sendCutlery,
