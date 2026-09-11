@@ -119,6 +119,57 @@ export function ProfileProvider({ children }) {
     }
   }, [dishFavorites, isAuthenticated])
 
+  /**
+   * Reconciles the wishlist with the server once the customer is signed in.
+   *
+   * Anything hearted as a guest is pushed up first — it was saved on this
+   * device and signing in should not look like losing it — and the server's
+   * list is then authoritative, because it is the one the phone will read.
+   *
+   * The slug is derived from the shop's name the same way every other screen
+   * derives it; there is no stored slug to return.
+   */
+  useEffect(() => {
+    if (!isAuthenticated) return undefined
+    let cancelled = false
+
+    const sync = async () => {
+      try {
+        const local = JSON.parse(localStorage.getItem("userDishFavorites") || "[]")
+        const localIds = [...new Set(local.map((d) => String(d?.id || "")).filter(Boolean))]
+        // Idempotent server-side, so pushing one that is already there is free.
+        await Promise.allSettled(localIds.map((id) => userAPI.addFavoriteFood(id)))
+
+        const res = await userAPI.getFavorites()
+        if (cancelled) return
+        const foods = res?.data?.data?.foods || []
+        setDishFavorites(
+          foods.map((f) => ({
+            id: String(f._id),
+            name: f.name,
+            description: f.description,
+            price: f.price,
+            originalPrice: f.otherPrice,
+            image: f.image || f.images?.[0] || "",
+            restaurantId: String(f.restaurantId || ""),
+            restaurantName: f.restaurantName || "",
+            restaurantSlug: String(f.restaurantName || "").toLowerCase().replace(/\s+/g, "-"),
+            foodType: f.foodType,
+          })),
+        )
+      } catch (err) {
+        // The locally held list stays on screen; a wishlist that cannot be
+        // reached is not a reason to show the customer an empty one.
+        debugError("wishlist sync failed", err)
+      }
+    }
+
+    sync()
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated])
+
   useEffect(() => {
     if (isAuthenticated) {
       localStorage.setItem("userVegMode", vegMode.toString())
@@ -366,21 +417,44 @@ export function ProfileProvider({ children }) {
     return favorites
   }, [favorites])
 
-  // Dish favorites functions - memoized with useCallback
+  /**
+   * The product wishlist, kept on the server for a signed-in customer.
+   *
+   * It used to live only in localStorage, so it died with the browser's site
+   * data and never reached the same customer's phone — while the API that was
+   * meant to hold it sat unused.
+   *
+   * Writes are optimistic and roll back if the server refuses: the heart has to
+   * fill the instant it is tapped, and a wishlist is not worth blocking a tap
+   * on a round trip. A guest still gets localStorage, and what they saved
+   * before signing in is pushed up on the way in rather than dropped.
+   */
   const addDishFavorite = useCallback((dish) => {
+    let added = false
     setDishFavorites((prev) => {
-      if (!prev.find(fav => fav.id === dish.id && fav.restaurantId === dish.restaurantId)) {
-        return [...prev, dish]
-      }
-      return prev
+      if (prev.find((fav) => fav.id === dish.id && fav.restaurantId === dish.restaurantId)) return prev
+      added = true
+      return [...prev, dish]
     })
-  }, [])
+    if (!added || !isAuthenticated) return
+    userAPI.addFavoriteFood(dish.id).catch((err) => {
+      debugError("wishlist add failed", err)
+      setDishFavorites((prev) => prev.filter((f) => !(f.id === dish.id && f.restaurantId === dish.restaurantId)))
+    })
+  }, [isAuthenticated])
 
   const removeDishFavorite = useCallback((dishId, restaurantId) => {
-    setDishFavorites((prev) => 
-      prev.filter(fav => !(fav.id === dishId && fav.restaurantId === restaurantId))
-    )
-  }, [])
+    let removed = null
+    setDishFavorites((prev) => {
+      removed = prev.find((f) => f.id === dishId && f.restaurantId === restaurantId) || null
+      return prev.filter((fav) => !(fav.id === dishId && fav.restaurantId === restaurantId))
+    })
+    if (!removed || !isAuthenticated) return
+    userAPI.removeFavoriteFood(dishId).catch((err) => {
+      debugError("wishlist remove failed", err)
+      setDishFavorites((prev) => (prev.some((f) => f.id === dishId) ? prev : [...prev, removed]))
+    })
+  }, [isAuthenticated])
 
   const isDishFavorite = useCallback((dishId, restaurantId) => {
     return dishFavorites.some(fav => fav.id === dishId && fav.restaurantId === restaurantId)
