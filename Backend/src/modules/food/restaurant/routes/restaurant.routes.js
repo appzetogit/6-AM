@@ -83,6 +83,7 @@ import {
 } from '../controllers/deliveryFleet.controller.js';
 import {
     quotePosOrderController,
+    listPosCouponsController,
     createPosOrderController,
     recordPosPaymentController,
     searchPosCustomersController,
@@ -338,6 +339,9 @@ router.post('/orders/:orderId/assign-delivery', authMiddleware, requireRestauran
 
 // POS — the seller's till. Every route is scoped to the signed-in shop.
 router.post('/pos/quote', authMiddleware, requireRestaurant, quotePosOrderController);
+// POST, not GET: judging a coupon needs the cart, and a cart does not belong
+// in a query string.
+router.post('/pos/coupons', authMiddleware, requireRestaurant, listPosCouponsController);
 router.post('/pos/orders', authMiddleware, requireRestaurant, createPosOrderController);
 router.get('/pos/orders', authMiddleware, requireRestaurant, listPosOrdersController);
 router.get('/pos/orders/last', authMiddleware, requireRestaurant, getLastPosBillController);
