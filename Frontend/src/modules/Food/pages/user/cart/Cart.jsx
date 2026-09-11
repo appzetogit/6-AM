@@ -524,7 +524,13 @@ export default function Cart() {
     // booked window against opening hours made every early slot pickable but
     // unorderable: the customer chose it and the button turned into "Offline"
     // with nothing to say why. Counter hours still gate ordering for right now.
-    if (selectedSlotId) return { isOpen: true, reason: "slot" }
+    //
+    // Only the clock is set aside, though: a shop that has paused orders or
+    // been switched off is not taking bookings for later either.
+    if (selectedSlotId) {
+      const status = getRestaurantAvailabilityStatus(restaurantData, new Date(availabilityTick))
+      return { ...status, isOpen: status.isActive !== false && status.isAcceptingOrders !== false }
+    }
     const targetDate = scheduledOrderAt || new Date(availabilityTick)
     return getRestaurantAvailabilityStatus(restaurantData, targetDate)
   }, [restaurantData, availabilityTick, scheduledOrderAt, selectedSlotId])
