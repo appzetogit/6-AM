@@ -159,9 +159,15 @@ Omit both fields for an instant order.
 A booked window is not measured against the shop's counter hours, on either
 side — a 7–8 AM round exists precisely because the counter is shut at 7am, so
 checking one against the other makes every early slot pickable but unorderable.
-If your screen disables checkout while the shop reads as closed, **skip that
-check when a slot is selected**; keep it for instant orders, which really do
-depend on the shop being open now.
+If your screen disables checkout while the shop reads as closed, **skip the
+opening-hours part when a slot is selected**; keep it for instant orders, which
+really do depend on the shop being open now.
+
+Set aside the clock only — **not** the shop's own switch. A shop that has paused
+orders (`isAcceptingOrders: false`) or been deactivated (`isActive: false`) is not
+taking bookings for later either: closed for the day has to stop a 7am booking the
+same way it stops one for right now. Booking into a window on a shop in that state
+returns `Store is currently offline.` or `Store is currently closed.`
 
 ### What comes back
 
@@ -432,6 +438,9 @@ UI and the result read back out of the database.
 | 35 | Window inside opening hours | no warning | browser |
 | 36 | Shop with no hours on record | counted as keeping standard 09:00–22:00 hours | tests |
 | 37 | Claiming a place in an uncapped window | nothing recorded — nothing contends over it | tests |
+| 38 | Booking a window on a shop that has paused orders | 400 `Store is currently offline.` | dev script |
+| 39 | Same, on the cart screen | pay button reads `Offline` with a window selected | browser |
+| 40 | Booking a window outside the shop's hours, shop switched on | accepted | browser |
 
 Backend suite at the time of writing: 176 tests, all passing
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
