@@ -37,7 +37,14 @@ const defaultTimings = () =>
         closingTime: '22:00'
     }));
 
-const toClientShape = (doc) => {
+/**
+ * A shop's week, with the defaults applied.
+ *
+ * Exported because anything asking "is this shop open then" has to answer it
+ * the same way this module does — a shop with nothing on record keeps standard
+ * hours rather than being treated as never open.
+ */
+export const toClientShape = (doc) => {
     const timings = Array.isArray(doc?.timings) ? doc.timings : [];
     const map = {};
     for (const day of DAY_NAMES) {
