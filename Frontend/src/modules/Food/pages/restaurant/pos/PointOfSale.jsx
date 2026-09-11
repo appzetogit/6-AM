@@ -16,8 +16,8 @@ import PosPayScreen from "@food/components/restaurant/pos/PosPayScreen"
 import PosCouponModal from "@food/components/restaurant/pos/PosCouponModal"
 import PosCardDetailsModal from "@food/components/restaurant/pos/PosCardDetailsModal"
 import PosCashTenderModal from "@food/components/restaurant/pos/PosCashTenderModal"
-import { PosChargesModal, PosTableModal } from "@food/components/restaurant/pos/PosSmallModals"
-import { KEY_ACTIONS, lineDiscount, printReceipt, ORDER_TYPE_LABEL } from "@food/components/restaurant/pos/posUtils"
+import { PosChargesModal } from "@food/components/restaurant/pos/PosSmallModals"
+import { KEY_ACTIONS, lineDiscount, printReceipt } from "@food/components/restaurant/pos/posUtils"
 
 const extractRestaurant = (response) =>
   response?.data?.data?.restaurant || response?.data?.restaurant || response?.data?.data || null
@@ -38,8 +38,12 @@ export default function PointOfSale() {
   const [menuLoading, setMenuLoading] = useState(true)
   const [restaurant, setRestaurant] = useState(null)
 
-  const [orderType, setOrderType] = useState("walk_in")
-  const [tableNo, setTableNo] = useState("")
+  // Every till sale is a walk-in counter sale. The four-way selector is gone:
+  // this is a grocery counter, not a restaurant floor — dine-in and take-away
+  // are not distinctions it makes, and a delivery is placed in the app, where
+  // the customer's address comes from. The server still takes the field and
+  // still supports the other values; nothing here sends them any more.
+  const orderType = "walk_in"
   const [salesmanChoice, setSalesman] = useState("")
   const [autoPrint, setAutoPrint] = useState(() => {
     try { return localStorage.getItem("pos.autoPrint") === "1" } catch { return false }
@@ -57,7 +61,7 @@ export default function PointOfSale() {
   const [quoting, setQuoting] = useState(false)
   const [lastBill, setLastBill] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [modal, setModal] = useState(null) // holds | orders | payments | multiple | coupon | charges | table | card | cash
+  const [modal, setModal] = useState(null) // holds | orders | payments | multiple | coupon | charges | card | cash
   // Whether the payment being collected came from a "& Print" key (F8, F9)
   // rather than its plain twin — the dialog is the same either way.
   const [pendingWillPrint, setPendingWillPrint] = useState(false)
@@ -130,7 +134,6 @@ export default function PointOfSale() {
 
   const billInput = useCallback(() => ({
     orderType,
-    tableNo,
     salesman,
     remarks,
     customerId: customer?.id || undefined,
@@ -141,7 +144,7 @@ export default function PointOfSale() {
     additionalCharges,
     roundOff,
     couponCode: couponCode || undefined,
-  }), [orderType, tableNo, salesman, remarks, customer, cart.lines, flat, additionalCharges, roundOff, couponCode])
+  }), [orderType, salesman, remarks, customer, cart.lines, flat, additionalCharges, roundOff, couponCode])
 
   // Just the lines, memoised: the coupon list refetches when the cart changes,
   // and a fresh array every render would make that an endless loop.
@@ -178,7 +181,6 @@ export default function PointOfSale() {
     setAdditionalCharges(0)
     setRoundOff(false)
     setCouponCode("")
-    setTableNo("")
     setCustomer(null)
     setQuote(null)
   }, [cart])
@@ -197,10 +199,6 @@ export default function PointOfSale() {
       toast.error("Pay later needs a customer — pick one or add a phone number")
       return
     }
-    // The table belongs to the order, not to the payment, so it is asked for
-    // before any tender dialog. Asked after one, it fires on the way back from
-    // the keypad and throws away the amount the cashier just counted in.
-    if (orderType === "dine_in" && !tableNo) { setModal("table"); return }
     if (mode === "multiple" && !tenders) { setModal("multiple"); return }
     // A card swipe is recorded, not just taken: the machine's transaction
     // number is what a chargeback is traced by, and nobody goes back for it.
@@ -225,7 +223,7 @@ export default function PointOfSale() {
     } finally {
       setBusy(false)
     }
-  }, [cart.lines.length, busy, customer, orderType, tableNo, billInput, autoPrint, resetBill, loadSummary])
+  }, [cart.lines.length, busy, customer, billInput, autoPrint, resetBill, loadSummary])
 
   const hold = useCallback(async (print) => {
     if (!cart.lines.length || busy) return
@@ -250,8 +248,6 @@ export default function PointOfSale() {
     if (!held) return
     resetBill()
     cart.load(held.items || [])
-    setOrderType(held.orderType || "walk_in")
-    setTableNo(held.tableNo || "")
     setRemarks(held.remarks || "")
     setFlat(held.flatDiscount?.value ? { type: held.flatDiscount.type || "percent", value: held.flatDiscount.value } : { type: "percent", value: 0 })
     setAdditionalCharges(Number(held.additionalCharges) || 0)
@@ -301,8 +297,6 @@ export default function PointOfSale() {
   return (
     <div className="flex h-screen flex-col bg-[#f4f7fb] text-gray-800">
       <PosTopBar
-        orderType={orderType}
-        onOrderType={(t) => { setOrderType(t); if (t === "dine_in" && !tableNo) setModal("table") }}
         salesman={salesman}
         salesmen={salesmen}
         onSalesman={setSalesman}
@@ -329,13 +323,8 @@ export default function PointOfSale() {
             />
           </div>
 
-          {orderType === "dine_in" || couponCode ? (
+          {couponCode ? (
             <div className="flex flex-wrap items-center gap-2">
-              {orderType === "dine_in" ? (
-                <button type="button" onClick={() => setModal("table")} className="rounded bg-sky-100 px-2 py-0.5 text-xs text-sky-800">
-                  Table: {tableNo || "not set"} · change
-                </button>
-              ) : null}
               {/* A coupon can stop applying after it was picked — the cashier
                   removes a line and the bill drops below its minimum. The strip
                   would just show no discount, so say which it is. */}
@@ -439,9 +428,6 @@ export default function PointOfSale() {
             pay("cash", { print: pendingWillPrint || autoPrint, tenders: [{ mode: "cash", amount }] })
           }
         />
-      ) : null}
-      {modal === "table" ? (
-        <PosTableModal current={tableNo} onClose={() => setModal(null)} onApply={(t) => { setTableNo(t); setModal(null) }} />
       ) : null}
     </div>
   )
