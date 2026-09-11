@@ -1,6 +1,9 @@
 import { Layers, Wallet, PauseCircle, ChevronsRight, CreditCard, IndianRupee, Gift, CalendarClock } from "lucide-react"
 
-const btn = "flex h-12 items-center justify-center gap-2 rounded bg-[#1f1f1f] text-[15px] font-medium text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-40"
+// A disabled key keeps the row's weight rather than dropping to a ghost: this
+// is a wall of twelve identical buttons and one washed-out gap reads as a
+// rendering fault. Dimmed enough to look inactive, solid enough to belong.
+const btn = "flex h-12 items-center justify-center gap-2 rounded bg-[#1f1f1f] text-[15px] font-medium text-white hover:bg-black disabled:cursor-not-allowed disabled:bg-[#4a4a4a] disabled:text-neutral-300 disabled:hover:bg-[#4a4a4a]"
 
 /**
  * The twelve buttons, in the reference's grid, each with its F-key. The same
