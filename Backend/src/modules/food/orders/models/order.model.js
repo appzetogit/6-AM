@@ -474,6 +474,20 @@ const orderSchema = new mongoose.Schema(
         sendCutlery: { type: Boolean, default: true },
         deliveryFleet: { type: String, default: 'standard', trim: true },
         scheduledAt: { type: Date, default: null },
+        /**
+         * The window the customer booked, when they booked one.
+         *
+         * Absent means instant — the order goes out now, on the path it always
+         * took. The label and times are snapshotted alongside the id so an
+         * order still reads "7 – 8 AM" after the slot is renamed or retired,
+         * which is what the customer was told and what they will quote back.
+         */
+        deliverySlot: {
+            slotId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliverySlot', default: null, index: true },
+            label: { type: String, trim: true, default: '' },
+            startTime: { type: String, trim: true, default: '' },
+            endTime: { type: String, trim: true, default: '' }
+        },
         riderEarning: { type: Number, default: 0, min: 0 },
         // Can be negative when discounts/rider pay exceed platform income; keep the real value visible.
         platformProfit: { type: Number, default: 0 },
