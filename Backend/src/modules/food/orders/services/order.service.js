@@ -902,6 +902,11 @@ export async function createOrder(userId, dto) {
     // awaiting online payment: the units have to be held while the customer is
     // on the payment sheet, or two people pay for the same last unit. The
     // pending-payment cleanup gives them back.
+    // The printed number is normally minted on save, which is after this point;
+    // without it every stock movement records a blank label, and the ledger's
+    // only searchable handle on an order is that label.
+    await order.ensureOrderId();
+
     const reservation = await reserveStockForItems(resolvedItems, {
       orderId: order._id,
       orderLabel: order.order_id || order.orderId || '',
@@ -927,7 +932,13 @@ export async function createOrder(userId, dto) {
         // turned away by them — but it does take up a place in the window.
         unconditional: Boolean(dto.deliverySlotSnapshot),
       });
-      if (!took) throw new ValidationError('This slot is full');
+      if (!took) {
+        // The units were taken a few lines up and this order will never exist,
+        // so nothing downstream can give them back — the shelf has to be put
+        // right here or a full window quietly destroys stock.
+        await releaseReservations(reservation);
+        throw new ValidationError('This slot is full');
+      }
     }
 
     try {
