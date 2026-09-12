@@ -33,6 +33,7 @@ import {
   sanitizeOrderForDeliveryPartner,
   TERMINAL_ORDER_STATUSES,
   isStatusAdvance,
+  DISPATCH_LEAD_MS,
 } from './order.helpers.js';
 const DELIVERY_ORDER_BASE_SELECT = [
   '_id',
@@ -47,6 +48,10 @@ const DELIVERY_ORDER_BASE_SELECT = [
   'pricing',
   'payment',
   'orderStatus',
+  // A booking's window, so the rider app can say which round this is rather
+  // than showing a delivery due tomorrow as if it were due now.
+  'scheduledAt',
+  'deliverySlot',
   'dispatch',
   'deliveryState',
   'note',
@@ -254,6 +259,15 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
               },
             },
             orderStatus: { $in: ['confirmed', 'preparing', 'ready_for_pickup'] },
+            // A booking is confirmed the moment it is placed and stays
+            // unassigned until its window, so without this a rider was offered
+            // tomorrow's round today — and accepting one locked them out of
+            // real work for a day. Matches when the dispatcher starts hunting.
+            // `scheduledAt: null` also matches orders that have no such field.
+            $or: [
+              { scheduledAt: null },
+              { scheduledAt: { $lte: new Date(Date.now() + DISPATCH_LEAD_MS) } },
+            ],
           },
           {
             'dispatch.deliveryPartnerId': partnerId,
