@@ -168,7 +168,10 @@ export default function Stocks() {
     if (!rows.length) return toast.error("Nothing to export")
     const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`
     const head = cols.filter((c) => c.key !== "srNo").map((c) => c.label)
-    const lines = rows.map((r) => cols.filter((c) => c.key !== "srNo").map((c) => (c.numeric ? num(r[c.key]) : r[c.key] ?? "")).map(esc).join(","))
+    // Same distinction as the table: an untracked product exports an empty
+    // cell, so a spreadsheet total does not count it as a zero.
+    const out = (r, c) => (c.key === "totalAvailableQty" && r.stockQty === null ? "" : c.numeric ? num(r[c.key]) : r[c.key] ?? "")
+    const lines = rows.map((r) => cols.filter((c) => c.key !== "srNo").map((c) => out(r, c)).map(esc).join(","))
     const blob = new Blob([[head.map(esc).join(","), ...lines].join("\n")], { type: "text/csv" })
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `stock-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(a.href)
   }
@@ -180,6 +183,11 @@ export default function Stocks() {
   const cell = (row, c, i) => {
     if (c.key === "srNo") return <span className="text-neutral-700">{(page - 1) * pageSize + i + 1}</span>
     if (c.key === "name") return <button type="button" onClick={() => openHistory(row)} className="font-medium text-sky-600 hover:underline">{row.name}</button>
+    // An untracked product has no count, which is not the same as a count of
+    // zero — printing 0.00 reads as "sold out" and sends someone to restock a
+    // shelf that was never being counted. The movement table already says "—"
+    // for an unknown quantity; say it here too.
+    if (c.key === "totalAvailableQty" && row.stockQty === null) return <span className="text-neutral-400" title="Not tracked">—</span>
     if (c.numeric) return num(row[c.key])
     return row[c.key] || ""
   }
