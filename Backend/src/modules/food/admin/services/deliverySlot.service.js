@@ -7,6 +7,7 @@ import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodRestaurantOutletTimings } from '../../restaurant/models/outletTimings.model.js';
 import { toClientShape } from '../../restaurant/services/outletTimings.service.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
+import { DEFAULT_SLOT_CUTOFF_MINUTES } from '../../orders/services/order.helpers.js';
 
 /**
  * Delivery slots: the windows a customer can book instead of "as soon as you can".
@@ -67,9 +68,15 @@ const validate = (dto, { partial = false } = {}) => {
         throw new ValidationError('A slot must end after it starts');
     }
     if (dto.cutoffMinutes !== undefined) {
-        const cutoff = Number(dto.cutoffMinutes);
-        if (!Number.isFinite(cutoff) || cutoff < 0) throw new ValidationError('cutoffMinutes cannot be negative');
-        out.cutoffMinutes = Math.round(cutoff);
+        // Blank means "use the system default", which is not the same as zero —
+        // zero is a window that takes orders right up to the moment it starts.
+        if (dto.cutoffMinutes === null || dto.cutoffMinutes === '') {
+            out.cutoffMinutes = null;
+        } else {
+            const cutoff = Number(dto.cutoffMinutes);
+            if (!Number.isFinite(cutoff) || cutoff < 0) throw new ValidationError('cutoffMinutes cannot be negative');
+            out.cutoffMinutes = Math.round(cutoff);
+        }
     }
     if (dto.capacity !== undefined) {
         if (dto.capacity === null || dto.capacity === '') out.capacity = null;
@@ -96,7 +103,7 @@ const serialize = (slot) => ({
     label: slot.label,
     startTime: slot.startTime,
     endTime: slot.endTime,
-    cutoffMinutes: slot.cutoffMinutes ?? 60,
+    cutoffMinutes: slot.cutoffMinutes ?? DEFAULT_SLOT_CUTOFF_MINUTES,
     capacity: slot.capacity ?? null,
     daysOfWeek: slot.daysOfWeek || [],
     isActive: slot.isActive !== false,
@@ -406,7 +413,9 @@ export async function getAvailableSlots({ date, now = new Date() } = {}) {
     const slots = forThisDay.map((slot) => {
         const starts = new Date(day);
         starts.setHours(...String(slot.startTime).split(':').map(Number), 0, 0);
-        const closesAt = new Date(starts.getTime() - (slot.cutoffMinutes ?? 60) * 60000);
+        const closesAt = new Date(
+            starts.getTime() - (slot.cutoffMinutes ?? DEFAULT_SLOT_CUTOFF_MINUTES) * 60000
+        );
         const taken = bookedBy.get(String(slot._id)) || 0;
 
         let reason = '';
