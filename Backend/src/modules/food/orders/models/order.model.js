@@ -525,30 +525,44 @@ orderSchema.index({ 'dispatch.deliveryPartnerId': 1, 'dispatch.status': 1, updat
 orderSchema.index({ 'payment.status': 1, createdAt: -1 });
 orderSchema.index({ 'payment.method': 1, createdAt: -1 });
 
+/**
+ * Mints the printed order number on a document that does not have one yet.
+ *
+ * Separate from the pre-save hook so a caller can ask for the number *before*
+ * saving. Anything written during order creation that quotes the order — the
+ * stock ledger, most visibly — otherwise records an empty label, because the
+ * hook does not run until `save()`. It is idempotent: the hook calls it too,
+ * and it leaves an existing number alone.
+ */
+orderSchema.methods.ensureOrderId = async function ensureOrderId() {
+    if (!this.order_id) {
+        // 6 timestamp digits + 4 random digits, verified against the collection.
+        // The old 4+3 format collided after a few thousand orders (birthday paradox),
+        // which made display-id lookups match the wrong order.
+        for (let attempt = 0; attempt < 5 && !this.order_id; attempt += 1) {
+            const timestamp = Date.now().toString().slice(-6);
+            const random = Math.floor(1000 + Math.random() * 9000);
+            const candidate = `FOD-${timestamp}${random}`;
+            const exists = await this.constructor.exists({
+                $or: [{ order_id: candidate }, { orderId: candidate }],
+            });
+            if (!exists) this.order_id = candidate;
+        }
+        if (!this.order_id) {
+            // Guaranteed unique: derived from this document's own ObjectId.
+            this.order_id = `FOD-${this._id.toString().slice(-10).toUpperCase()}`;
+        }
+    }
+    // Synchronize camelCase alias to satisfy unique index 'orderId_1'
+    if (this.order_id) {
+        this.orderId = this.order_id;
+    }
+    return this.order_id;
+};
+
 orderSchema.pre('save', async function (next) {
     try {
-        if (!this.order_id) {
-            // 6 timestamp digits + 4 random digits, verified against the collection.
-            // The old 4+3 format collided after a few thousand orders (birthday paradox),
-            // which made display-id lookups match the wrong order.
-            for (let attempt = 0; attempt < 5 && !this.order_id; attempt += 1) {
-                const timestamp = Date.now().toString().slice(-6);
-                const random = Math.floor(1000 + Math.random() * 9000);
-                const candidate = `FOD-${timestamp}${random}`;
-                const exists = await this.constructor.exists({
-                    $or: [{ order_id: candidate }, { orderId: candidate }],
-                });
-                if (!exists) this.order_id = candidate;
-            }
-            if (!this.order_id) {
-                // Guaranteed unique: derived from this document's own ObjectId.
-                this.order_id = `FOD-${this._id.toString().slice(-10).toUpperCase()}`;
-            }
-        }
-        // Synchronize camelCase alias to satisfy unique index 'orderId_1'
-        if (this.order_id) {
-            this.orderId = this.order_id;
-        }
+        await this.ensureOrderId();
         next();
     } catch (err) {
         next(err);
