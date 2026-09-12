@@ -120,6 +120,18 @@ const serializeSubscription = (sub, maps) => ({
     daysOfWeek: sub.daysOfWeek || [],
     dayOfMonth: sub.dayOfMonth ?? null,
     deliveryTime: sub.deliveryTime,
+    // The window they signed up to, when they picked one rather than typing a
+    // time. Serialized field by field here, so a field not named never reaches
+    // the screen — which is how the admin list ended up showing "18:00" for a
+    // subscription the customer knows as the Evening 6-8 PM round.
+    deliverySlot: sub.deliverySlot?.slotId
+        ? {
+            slotId: String(sub.deliverySlot.slotId),
+            label: sub.deliverySlot.label || '',
+            startTime: sub.deliverySlot.startTime || '',
+            endTime: sub.deliverySlot.endTime || '',
+        }
+        : null,
     startDate: sub.startDate,
     paymentMethod: sub.paymentMethod,
     status: sub.status,
@@ -244,7 +256,7 @@ export async function listDeliveries(query = {}) {
     // Occurrences carry no item, so the parent subscriptions supply it.
     const subIds = [...new Set(rows.map((r) => String(r.subscriptionId)).filter(Boolean))];
     const subs = await FoodProductSubscription.find({ _id: { $in: subIds } })
-        .select('itemId itemName quantity frequency paymentMethod status')
+        .select('itemId itemName quantity frequency paymentMethod status deliverySlot')
         .lean();
     const subMap = new Map(subs.map((s) => [String(s._id), s]));
 
@@ -271,6 +283,16 @@ export async function listDeliveries(query = {}) {
             subscriptionId: String(occurrence.subscriptionId),
             scheduledDate: occurrence.scheduledDate,
             deliveryTime: occurrence.deliveryTime,
+            // The window lives on the standing arrangement, not on each
+            // occurrence, so it comes from the parent.
+            deliverySlot: sub?.deliverySlot?.slotId
+                ? {
+                    slotId: String(sub.deliverySlot.slotId),
+                    label: sub.deliverySlot.label || '',
+                    startTime: sub.deliverySlot.startTime || '',
+                    endTime: sub.deliverySlot.endTime || '',
+                }
+                : null,
             status: occurrence.status,
             customer: customerOf(maps, occurrence.userId),
             restaurantId: String(occurrence.restaurantId || ''),
