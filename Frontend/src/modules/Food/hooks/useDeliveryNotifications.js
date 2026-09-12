@@ -967,6 +967,28 @@ export const useDeliveryNotifications = () => {
       }
     });
 
+    // A seller handing one order to one of their own riders, rather than the
+    // dispatcher offering it to everyone in range. The rider still has to
+    // accept, so it goes through the same queue and the same card — but it
+    // arrives on its own event, because "assigned to you" and "up for grabs"
+    // are different things and a later screen may want to say so.
+    socketRef.current.on('order_assigned', (orderData) => {
+      if (isPartnerBusy()) {
+        debugLog('Ignoring order_assigned because partner already has an active trip', {
+          orderId: orderData?.orderId || orderData?.orderMongoId || orderData?._id,
+        });
+        return;
+      }
+
+      const result = enqueueOffer(orderData);
+      if (result === 'shown') {
+        debugLog('Order assigned by seller received via socket', {
+          orderId: orderData?.orderId || orderData?.orderMongoId || orderData?._id,
+        });
+        handleIncomingOrderAlert(orderData);
+      }
+    });
+
     socketRef.current.on('play_notification_sound', (data) => {
       if (isPartnerBusy()) {
         debugLog('Ignoring play_notification_sound because partner already has an active trip');
