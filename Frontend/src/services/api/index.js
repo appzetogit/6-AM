@@ -1618,6 +1618,30 @@ export const restaurantAPI = {
       params: { limit: 50, page: 1, ...params },
       contextModule: "restaurant",
     }),
+
+  /**
+   * The seller's own riders, and handing one an order.
+   *
+   * A seller running their own fleet gets no automatic dispatch — the
+   * dispatcher skips them — so this is the only way their orders reach a rider.
+   */
+  getDeliveryFleet: () =>
+    apiClient.get("/food/restaurant/delivery-fleet", { contextModule: "restaurant" }),
+  linkDeliveryPartner: (phone) =>
+    apiClient.post("/food/restaurant/delivery-fleet/link", { phone: String(phone || "").trim() }, {
+      contextModule: "restaurant",
+    }),
+  unlinkDeliveryPartner: (deliveryPartnerId) =>
+    apiClient.delete(`/food/restaurant/delivery-fleet/${String(deliveryPartnerId)}`, {
+      contextModule: "restaurant",
+    }),
+  assignDeliveryPartner: (orderId, deliveryPartnerId) =>
+    apiClient.post(
+      `/food/restaurant/orders/${String(orderId)}/assign-delivery`,
+      { deliveryPartnerId: String(deliveryPartnerId) },
+      { contextModule: "restaurant" },
+    ),
+
   /** Dashboard summary widgets: account counts, order totals, 6-month charts */
   getDashboardSummary: () =>
     apiClient.get("/food/restaurant/dashboard-summary", {
