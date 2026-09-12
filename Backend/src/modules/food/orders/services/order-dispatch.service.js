@@ -17,6 +17,7 @@ import {
   notifyOwnerSafely,
   notifyOwnersActionableAlert,
   notifyOwnersSafely,
+  dispatchRadiusBandsKm,
 } from './order.helpers.js';
 import { fetchDrivingRoute } from '../utils/googleMaps.js';
 import { parseGeoPoint } from '../../shared/geo.utils.js';
@@ -429,11 +430,7 @@ export async function tryAutoAssign(orderId, options = {}) {
     //
     // Overridable without a deploy, because the honest radius depends on rider
     // density in a way only live data shows.
-    const bands = String(process.env.DISPATCH_RADIUS_BANDS_KM || '3,5,8,12')
-      .split(',')
-      .map((value) => Number(value.trim()))
-      .filter((value) => Number.isFinite(value) && value > 0);
-    const radiusBands = bands.length > 0 ? bands : [3, 5, 8, 12];
+    const radiusBands = dispatchRadiusBandsKm();
     const maxKm = radiusBands[Math.min(Math.max(attempt, 1), radiusBands.length) - 1];
 
     const searchOptions = { maxKm, limit: 15 };
