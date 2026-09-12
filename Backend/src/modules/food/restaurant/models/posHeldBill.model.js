@@ -18,6 +18,14 @@ const heldLineSchema = new mongoose.Schema(
     {
         itemId: { type: String, required: true, trim: true },
         name: { type: String, trim: true, default: '' },
+        /**
+         * The two columns the cashier reads the line by. Without them a resumed
+         * bill comes back with a blank Itemcode and the selling price standing
+         * in for the MRP, so the same basket looks different before and after
+         * being parked — and the slip loses its "you saved" line.
+         */
+        itemCode: { type: String, trim: true, default: '' },
+        mrp: { type: Number, min: 0, default: null },
         variantId: { type: String, trim: true, default: '' },
         price: { type: Number, min: 0, default: 0 },
         quantity: { type: Number, min: 1, default: 1 },
