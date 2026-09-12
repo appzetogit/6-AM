@@ -18,19 +18,18 @@ instead of taking it as soon as the shop can send it.
 the path it took before slots existed. An app that never sends a slot keeps working
 unchanged. Everything in this document is additive.
 
-So the choice on the cart screen is two options, not one list:
+**Windows belong to subscriptions, not to the cart.** This is quick commerce: a basket
+is for now, and the promise is minutes. The morning 7–8 round is a *standing
+arrangement* — you subscribe to it — not something picked per basket. The web cart
+offers no window at all, and the Flutter cart should not either.
 
-```
-(•) Instant        We start packing straight away
-( ) Pick a slot    Choose the window you want it delivered in
-```
+So a window is chosen in exactly one place: **when setting up a subscription**
+(section 7). Everything about one-off orders in section 5 still exists and still works —
+it is what a subscription's occurrences use when they become real orders, and it is
+there if a future product decision brings scheduled baskets back — but no customer-facing
+cart should call it today.
 
-The window list appears only under the second. Never put "Instant" inside the slot list
-as if it were a window.
-
-Slots are configured centrally by the admin and are the same for every shop. A
-deployment with none configured returns an empty list — hide the "Pick a slot" option
-entirely rather than showing an empty picker.
+Slots are configured centrally by the admin and are the same for every shop.
 
 ### The mental model that prevents most bugs
 
@@ -539,14 +538,9 @@ slots visible in the admin list, greyed out, with a way to restore.
 
 **Cart**
 
-- [ ] Default to Instant; send no slot fields. This is the unchanged path.
-- [ ] "Pick a slot" reveals day chips (today + 3) and the windows for the selected day.
-- [ ] Unavailable windows shown, greyed, with `reason` underneath.
-- [ ] Pre-select the first `available` window; clear the selection when the day changes.
-- [ ] Do not disable checkout because the shop is outside opening hours — but do disable
-      it when the shop has paused orders or is deactivated.
-- [ ] On place-order send `deliverySlotId` + `deliveryDate`; on any of the six errors in
-      section 5, re-fetch and let them pick again.
+- [ ] No window picker. A basket is for now; send no slot fields.
+- [ ] Quote `pricing.deliveryPromiseMinutes`, not the shop's advertised band — and quote
+      the same number everywhere on the screen.
 
 **Order tracking / current order**
 
@@ -698,6 +692,9 @@ implementation only.
 | 85 | Window created with the cut-off left blank | inherits the default: `Orders close 15 min before` | browser |
 | 86 | Blank cut-off against an explicit `0` | blank = default, `0` = orders taken right up to the start | tests |
 | 87 | Windows already carrying an explicit cut-off | keep it; stored rows are not rewritten | HTTP |
+| 88 | Product added from the storefront, ordered through the cart | placed, `scheduledAt: null`, no window | browser |
+| 89 | Cart header against the Instant line | both read `6 mins`; they disagreed before | browser |
+| 90 | Cart after removing the picker | no window control, order places cleanly | browser |
 
 Backend suite at the time of writing: **207 tests, all passing**
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
