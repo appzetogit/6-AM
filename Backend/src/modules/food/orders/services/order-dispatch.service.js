@@ -699,7 +699,10 @@ export async function resendDeliveryNotificationRestaurant(orderId, restaurantId
 
   if (!order) throw new NotFoundError('Order not found');
 
-  const activeStatuses = ['confirmed', 'preparing', 'ready_for_pickup', 'ready'];
+  // 'created' — the seller has not answered yet — is dispatchable now that a
+  // rider is sent when the customer orders, so it must be re-sendable too.
+  // Refusing it left the seller looking at a Resend button that always failed.
+  const activeStatuses = ['created', 'confirmed', 'preparing', 'ready_for_pickup', 'ready'];
   if (!activeStatuses.includes(order.orderStatus)) {
     throw new ValidationError(`Cannot resend notification for order in status: ${order.orderStatus}`);
   }
@@ -723,7 +726,8 @@ export async function resendDeliveryNotificationAdmin(orderId) {
 
   if (!order) throw new NotFoundError('Order not found');
 
-  const activeStatuses = ['confirmed', 'preparing', 'ready_for_pickup', 'ready', 'reached_pickup'];
+  // Same as the seller's resend above: an unanswered order is dispatchable.
+  const activeStatuses = ['created', 'confirmed', 'preparing', 'ready_for_pickup', 'ready', 'reached_pickup'];
   if (!activeStatuses.includes(order.orderStatus)) {
     throw new ValidationError(`Cannot resend notification for order in status: ${order.orderStatus}`);
   }
