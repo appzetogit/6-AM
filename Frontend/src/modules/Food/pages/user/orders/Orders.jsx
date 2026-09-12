@@ -321,6 +321,11 @@ export default function Orders() {
               status: isRestaurantCancelled ? 'restaurant_cancelled' : getOrderStatus({ ...order, status: backendStatus }),
               originalStatus: originalStatus, // Keep original status for reference
               createdAt: createdAt.toISOString(),
+              // The window it was booked into, when there is one. Built field by
+              // field, so anything not named here never reaches the row — which
+              // is how a booking ended up counting down like an instant order.
+              scheduledAt: order.scheduledAt || null,
+              deliverySlot: order.deliverySlot || null,
               address: order.address || order.deliveryAddress || {},
               items: (order.items || []).map(item => ({
                 itemId: item.itemId || item._id || item.id,
@@ -1085,7 +1090,9 @@ Order again from this restaurant in the ${companyName} app.`
                     <div>
                       <p className="text-xs text-gray-500">{order.status === 'preparing' ? 'Preparing' : order.status === 'outForDelivery' ? 'Out for delivery' : order.status === 'confirmed' ? 'Order confirmed' : ''}</p>
                       {/* Countdown Timer */}
-                      {countdowns[order.id] && countdowns[order.id] > 0 && (
+                      {/* The row already names the window on a booking, and
+                          "988 mins remaining" is not a number anyone reads. */}
+                      {!getBookedFor(order) && countdowns[order.id] && countdowns[order.id] > 0 && (
                         <div className="flex items-center gap-1 mt-1 text-xs text-[#EB590E] font-medium">
                           <Clock size={12} />
                           <span>{countdowns[order.id]} min{countdowns[order.id] !== 1 ? 's' : ''} remaining</span>
