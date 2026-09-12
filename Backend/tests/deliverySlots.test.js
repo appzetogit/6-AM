@@ -13,6 +13,8 @@ import {
     cancelOrder,
     expireUnacceptedOrders
 } from '../src/modules/food/orders/services/order.service.js';
+import { listOrdersAvailableDelivery } from '../src/modules/food/orders/services/order-delivery.service.js';
+import { FoodDeliveryPartner } from '../src/modules/food/delivery/models/deliveryPartner.model.js';
 import * as slots from '../src/modules/food/admin/services/deliverySlot.service.js';
 import { slotStartOn } from '../src/modules/food/admin/services/deliverySlot.service.js';
 
@@ -558,6 +560,84 @@ describe('the last place in a window', () => {
         assert.equal(listed.slots[0].booked, 1);
         assert.equal(listed.slots[0].available, false);
         assert.equal(await slots.claimSlotSeat({ slotId, day, capacity: 1, orderId: someId() }), false);
+    });
+});
+
+describe('what a rider is offered', () => {
+    /**
+     * A booking is `confirmed` and unassigned from the moment it is placed and
+     * stays that way until its window, so the rider's offer list — which has no
+     * dispatcher in front of it — showed tomorrow's round today. Accepting one
+     * locked the rider out of real work until it came round.
+     *
+     * The list proximity-filters in memory, so these need a rider with GPS and
+     * a shop with coordinates near them, or nothing is offered at all.
+     */
+    const HYDERABAD = { lat: 17.385, lng: 78.4867 };
+
+    const makeRider = () =>
+        FoodDeliveryPartner.create({
+            name: 'Test Rider',
+            phone: '9700000001',
+            lastLat: HYDERABAD.lat,
+            lastLng: HYDERABAD.lng,
+            lastLocationAt: new Date()
+        });
+
+    const makeShop = () =>
+        FoodRestaurant.create({
+            restaurantName: 'Corner Store',
+            ownerName: 'Owner',
+            ownerPhone: '9000000009',
+            phone: '9000000009',
+            status: 'approved',
+            location: { type: 'Point', coordinates: [HYDERABAD.lng, HYDERABAD.lat] }
+        });
+
+    const offerable = (restaurantId, scheduledAt) =>
+        FoodOrder.collection.insertOne({
+            _id: someId(),
+            restaurantId,
+            orderStatus: 'confirmed',
+            dispatch: { status: 'unassigned' },
+            scheduledAt,
+            createdAt: new Date()
+        });
+
+    const offeredIds = async (riderId) => {
+        const res = await listOrdersAvailableDelivery(String(riderId), { page: 1, limit: 50 });
+        const list = Array.isArray(res?.data) ? res.data : [];
+        return list.map((o) => String(o._id || o.orderMongoId));
+    };
+
+    it('offers an instant order straight away', async () => {
+        const [rider, shop] = await Promise.all([makeRider(), makeShop()]);
+        const { insertedId } = await offerable(shop._id, null);
+        assert.ok((await offeredIds(rider._id)).includes(String(insertedId)));
+    });
+
+    it('does not offer a booking that is still a day away', async () => {
+        const [rider, shop] = await Promise.all([makeRider(), makeShop()]);
+        const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        const { insertedId } = await offerable(shop._id, tomorrow);
+        assert.ok(
+            !(await offeredIds(rider._id)).includes(String(insertedId)),
+            'a rider must not be able to take an order due tomorrow'
+        );
+    });
+
+    it('offers a booking once its window is close', async () => {
+        const [rider, shop] = await Promise.all([makeRider(), makeShop()]);
+        const soon = new Date(Date.now() + 10 * 60 * 1000);
+        const { insertedId } = await offerable(shop._id, soon);
+        assert.ok((await offeredIds(rider._id)).includes(String(insertedId)));
+    });
+
+    it('offers a booking whose window has already opened', async () => {
+        const [rider, shop] = await Promise.all([makeRider(), makeShop()]);
+        const past = new Date(Date.now() - 5 * 60 * 1000);
+        const { insertedId } = await offerable(shop._id, past);
+        assert.ok((await offeredIds(rider._id)).includes(String(insertedId)));
     });
 });
 
