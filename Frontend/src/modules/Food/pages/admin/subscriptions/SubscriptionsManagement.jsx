@@ -76,6 +76,21 @@ const StatusPill = ({ map, value }) => {
 }
 
 /** "daily", "weekly (Mon, Thu)", "monthly (day 5)" */
+/**
+ * When a subscription is delivered, in the customer's words.
+ *
+ * They picked "Evening 6-8 PM", not "18:00" — show the window they know when
+ * there is one, and fall back to the typed time for the older rows that have
+ * no window.
+ */
+const describeDeliveryTime = (row) => {
+  const slot = row?.deliverySlot
+  if (slot?.label && slot?.startTime && slot?.endTime) {
+    return `${slot.label} · ${slot.startTime}–${slot.endTime}`
+  }
+  return row?.deliveryTime || ''
+}
+
 const describeSchedule = (row) => {
   if (row.frequency === "weekly") {
     const days = (row.daysOfWeek || []).map((d) => WEEKDAYS[d]).filter(Boolean)
@@ -364,7 +379,7 @@ export default function SubscriptionsManagement() {
                         onClick={() => openDetail(row.subscriptionId)}
                         className="cursor-pointer hover:bg-neutral-50"
                       >
-                        <td className="whitespace-nowrap px-4 py-3 font-medium text-neutral-900">{row.deliveryTime}</td>
+                        <td className="whitespace-nowrap px-4 py-3 font-medium text-neutral-900">{describeDeliveryTime(row)}</td>
                         <td className="px-4 py-3">
                           <div className="font-medium text-neutral-900">{row.customer?.name}</div>
                           <div className="text-xs text-neutral-500">{row.customer?.phone}</div>
@@ -461,7 +476,7 @@ export default function SubscriptionsManagement() {
                         <td className="px-4 py-3 text-neutral-800">{row.itemName}</td>
                         <td className="px-4 py-3 text-neutral-600">{row.quantity}</td>
                         <td className="px-4 py-3 text-neutral-600">{describeSchedule(row)}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-neutral-600">{row.deliveryTime}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-neutral-600">{describeDeliveryTime(row)}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-neutral-600">{formatDate(row.startDate)}</td>
                         <td className="px-4 py-3"><StatusPill map={SUBSCRIPTION_STATUS} value={row.status} /></td>
                       </tr>
@@ -538,7 +553,7 @@ export default function SubscriptionsManagement() {
                 <div>
                   <p className="text-xs text-neutral-500">Schedule</p>
                   <p className="font-medium text-neutral-900">{describeSchedule(detail.subscription)}</p>
-                  <p className="text-xs text-neutral-500">at {detail.subscription.deliveryTime}</p>
+                  <p className="text-xs text-neutral-500">at {describeDeliveryTime(detail.subscription)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-neutral-500">Status</p>
