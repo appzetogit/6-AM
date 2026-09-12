@@ -31,6 +31,7 @@ import BottomNavOrders from "@food/components/restaurant/BottomNavOrders";
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar";
 import SellerGettingStarted from "@food/components/restaurant/SellerGettingStarted";
 import NewOrderAcceptCard from "@food/components/restaurant/NewOrderAcceptCard";
+import AssignRiderPanel from "@food/components/restaurant/AssignRiderPanel";
 import { restaurantAPI, diningAPI } from "@food/api";
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications";
 import ResendNotificationButton from "@food/components/restaurant/ResendNotificationButton";
@@ -2410,6 +2411,18 @@ export default function OrdersMain() {
                         />
                       </div>
                     )}
+
+                  {/* A seller running their own fleet gets no automatic
+                      dispatch, so without this the order just waits. */}
+                  {!selectedOrder.deliveryPartnerId &&
+                    !["delivered", "cancelled"].some((s) =>
+                      String(selectedOrder.status).toLowerCase().includes(s),
+                    ) && (
+                      <AssignRiderPanel
+                        orderId={selectedOrder.mongoId || selectedOrder.orderId}
+                        onAssigned={() => requestOrdersRefresh()}
+                      />
+                    )}
                 </div>
               </div>
 
@@ -2867,6 +2880,7 @@ function OrderCard({
   onMarkReady,
   isMarkingReady = false,
 }) {
+  const [showAssign, setShowAssign] = useState(false);
   const normalizedStatus = String(status || "").toLowerCase();
   const isReady = normalizedStatus === "ready";
   const isPreparing = normalizedStatus === "preparing";
@@ -2963,6 +2977,19 @@ function OrderCard({
           {dispatchStatus !== "accepted" && (isPreparing || isReady || normalizedStatus === "confirmed") && (
             <ResendNotificationButton orderId={orderId} mongoId={mongoId} onSuccess={onSelect} />
           )}
+          {/* Resend re-offers the order to the platform's riders. This hands it
+              to one of the seller's own — the only route that works at all for
+              a seller the dispatcher skips. */}
+          {!deliveryPartnerId && (isPreparing || isReady || normalizedStatus === "confirmed") && (
+            <button
+              type="button"
+              data-testid="assign-toggle"
+              onClick={(e) => { e.stopPropagation(); setShowAssign((v) => !v); }}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold bg-gray-900 text-white hover:bg-black"
+            >
+              {showAssign ? "Close" : "Assign rider"}
+            </button>
+          )}
         </div>
 
         {/* Mark Ready + ETA */}
@@ -2990,6 +3017,18 @@ function OrderCard({
           )}
         </div>
       </div>
+
+      {showAssign && !deliveryPartnerId ? (
+        <div className="px-3 pb-3" onClick={(e) => e.stopPropagation()}>
+          <AssignRiderPanel
+            orderId={mongoId || orderId}
+            onAssigned={() => {
+              setShowAssign(false);
+              onSelect?.();
+            }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
