@@ -926,6 +926,11 @@ export async function holdPosBill(restaurantId, dto = {}) {
         return {
             itemId,
             name: quoted?.name || String(raw?.name || ''),
+            // Carried through the park so the resumed line looks like the one
+            // that was parked. The quote knows the MRP; the item code only
+            // reaches us from the till, which read it off the product search.
+            itemCode: String(raw?.itemCode || ''),
+            mrp: quoted?.mrp ?? (Number.isFinite(Number(raw?.mrp)) ? Number(raw.mrp) : null),
             variantId: String(raw?.variantId || ''),
             price: quoted ? quoted.price : Math.max(0, Number(raw?.price) || 0),
             quantity: Math.max(1, parseInt(raw?.quantity, 10) || 1),
