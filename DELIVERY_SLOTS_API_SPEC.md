@@ -376,7 +376,7 @@ with no time-based fee, however long ago it was booked.
 | | Ordinary order | Booking |
 |---|---|---|
 | Seller's acceptance clock | a few minutes | runs to the **start of the window** |
-| Rider hunt | starts at checkout | starts about **30 min before the window** |
+| Rider hunt | starts at checkout | starts about **11 min before the window** |
 
 So on a booking, `acceptanceDeadlineAt` equals `scheduledAt`, and `dispatch.status` stays
 `unassigned` for hours. Both are correct.
@@ -404,7 +404,11 @@ pickup → reached drop → verify drop OTP → complete — and a booking walks
 an instant order does.
 
 **A booking is not offered until its window is close.** `GET /food/delivery/orders/available`
-excludes any order whose `scheduledAt` is more than ~30 minutes out. This is enforced
+excludes any order whose `scheduledAt` is further out than the dispatch lead — about
+**11 minutes**, derived from the quick-commerce promise (packing, against the ride across
+the first dispatch band, plus slack for the hunt). It is not a round half hour: this
+business delivers in minutes, and a longer lead would park riders on a booked order
+while instant orders went unserved. This is enforced
 server-side, so the rider app needs no filtering of its own — but do not build a screen
 that assumes every confirmed order in the area is available now, because that is what
 the list used to return.
@@ -669,6 +673,9 @@ implementation only.
 | 78 | Booking whose window already opened | still offered | tests |
 | 79 | Full rider lifecycle, instant order | accept → pickup → drop → OTP → delivered, all clean | dev script |
 | 80 | Full rider lifecycle, booking | identical, and the window survived to `delivered` | dev script |
+| 81 | Dispatch lead recomputed from the promise constants | 11 minutes, not a flat 30 | code read |
+| 82 | Rider offer radius | 15 km, a quarter wider than the furthest 12 km band | code read |
+| 83 | Instant option in the cart | `arriving in about 6 mins` from `deliveryPromiseMinutes` | browser |
 
 Backend suite at the time of writing: **205 tests, all passing**
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
@@ -681,5 +688,9 @@ Backend suite at the time of writing: **205 tests, all passing**
   the 07:00 window on 12 Sep were still `confirmed` the next day. What remains unproven
   is the *deferred dispatch* firing from its queued job after a long wait — the handler
   and the queuing are verified, an actual 18-hour timer completing is not.
+- **Slot cut-offs still default to 60 minutes.** That is a picking-lead decision for a
+  morning round rather than a delivery-speed one, so it was left alone — but it is the
+  one remaining number on this feature that was not re-derived for quick commerce, and
+  it is worth a deliberate choice per window.
 - **Slots are platform-wide**, not per seller — one set of windows for every shop. This
   was a deliberate decision, not an oversight.
