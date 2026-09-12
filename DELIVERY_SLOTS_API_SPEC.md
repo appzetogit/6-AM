@@ -628,6 +628,14 @@ implementation only.
 | 63 | Orders list row for a booking | names the window; no minute countdown | browser |
 | 64 | Orders list row for an instant order beside it | `28 mins remaining`, unchanged | browser |
 | 65 | Seller Scheduled tab | `13 Sept, 06:00 pm · Evening 6-8 PM · 18:00–20:00` | browser |
+| 66 | Admin subscription dialog, both windows unusable today | both offered ungreyed — a subscription is not judged against a day | browser |
+| 67 | Subscribing to a window already **full** today | accepted | browser |
+| 68 | What it stored | `deliveryTime` `18:00` (the window's start) + window snapshot | browser |
+| 69 | Occurrences pre-generated | 15 to the horizon, all `scheduled` | browser |
+| 70 | Scheduler run on the due occurrence | 1 order placed, occurrence → `order_placed` with its order id | dev script |
+| 71 | The order it created | `scheduledAt` 18:00 on the occurrence's day, window carried | dev script |
+| 72 | That window afterwards | `booked 3/2` — the standing arrangement pushed it over, and it now turns one-off bookings away | HTTP |
+| 73 | Admin subscription + today's-delivery rows | show `Evening 6-8 PM · 18:00–20:00`, not `18:00` | browser |
 
 Backend suite at the time of writing: **201 tests, all passing**
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
