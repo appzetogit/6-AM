@@ -349,11 +349,6 @@ export default function Cart() {
   const [isScheduled, setIsScheduled] = useState(false)
   const [scheduledDate, setScheduledDate] = useState("")
   const [scheduledTime, setScheduledTime] = useState("")
-  // The window the customer picked, when the shop has real slots configured.
-  // Empty on an instant order, which is the overwhelming majority of them.
-  const [selectedSlotId, setSelectedSlotId] = useState("")
-  const [deliverySlots, setDeliverySlots] = useState([])
-  const [loadingSlots, setLoadingSlots] = useState(false)
   const [orderProgress, setOrderProgress] = useState(0)
   const [showOrderSuccess, setShowOrderSuccess] = useState(false)
   const [placedOrderId, setPlacedOrderId] = useState(null)
@@ -519,21 +514,9 @@ export default function Cart() {
 
   const cartRestaurantAvailability = useMemo(() => {
     if (!restaurantData) return { isOpen: false, reason: "loading" }
-    // A window the shop publishes is its statement that it delivers then — the
-    // 7am round exists precisely because the counter is shut at 7am. Judging a
-    // booked window against opening hours made every early slot pickable but
-    // unorderable: the customer chose it and the button turned into "Offline"
-    // with nothing to say why. Counter hours still gate ordering for right now.
-    //
-    // Only the clock is set aside, though: a shop that has paused orders or
-    // been switched off is not taking bookings for later either.
-    if (selectedSlotId) {
-      const status = getRestaurantAvailabilityStatus(restaurantData, new Date(availabilityTick))
-      return { ...status, isOpen: status.isActive !== false && status.isAcceptingOrders !== false }
-    }
     const targetDate = scheduledOrderAt || new Date(availabilityTick)
     return getRestaurantAvailabilityStatus(restaurantData, targetDate)
-  }, [restaurantData, availabilityTick, scheduledOrderAt, selectedSlotId])
+  }, [restaurantData, availabilityTick, scheduledOrderAt])
 
   const canPlaceOrder = Boolean(restaurantData) && cartRestaurantAvailability.isOpen === true
 
@@ -589,92 +572,7 @@ export default function Cart() {
     }
   }, [isScheduled, scheduledDate, restaurantData])
 
-  /**
-   * The windows the shop actually offers for the chosen day.
-   *
-   * Fetched rather than derived from opening hours, because only the server
-   * knows what is already booked and when orders for a window close. A shop
-   * with no slots configured falls back to the hourly list above, so turning
-   * slots on is an addition rather than a switch.
-   */
-  useEffect(() => {
-    if (!isScheduled || !scheduledDate) {
-      setDeliverySlots([])
-      return undefined
-    }
-    let cancelled = false
-    setLoadingSlots(true)
-    adminAPI
-      .getAvailableDeliverySlots({ date: scheduledDate })
-      .then((res) => {
-        if (!cancelled) setDeliverySlots(res?.data?.data?.slots || [])
-      })
-      .catch(() => {
-        if (!cancelled) setDeliverySlots([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingSlots(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isScheduled, scheduledDate])
 
-  const bookableSlots = useMemo(() => deliverySlots.filter((slot) => slot.available), [deliverySlots])
-
-  // Keeps the chosen time honest: an instant order carries none, and a slot
-  // that has closed or filled since the list was drawn is replaced.
-  useEffect(() => {
-    if (!isScheduled) {
-      setScheduledDate("")
-      setScheduledTime("")
-      setSelectedSlotId("")
-      return
-    }
-    if (deliverySlots.length > 0) {
-      const chosen = deliverySlots.find((slot) => slot.id === selectedSlotId)
-      if (!chosen || !chosen.available) {
-        const first = bookableSlots[0]
-        setSelectedSlotId(first ? first.id : "")
-        setScheduledTime(first ? first.startTime : "")
-      }
-      return
-    }
-    if (availableTimeSlots.length > 0) {
-      const isValid = availableTimeSlots.some((slot) => slot.value === scheduledTime)
-      if (!isValid) setScheduledTime(availableTimeSlots[0].value)
-    }
-  }, [isScheduled, availableTimeSlots, scheduledTime, deliverySlots, bookableSlots, selectedSlotId])
-
-  /** Today plus the next three days — as far ahead as a grocery round is booked. */
-  const scheduleDayOptions = useMemo(() => {
-    const days = []
-    for (let i = 0; i < 4; i += 1) {
-      const day = new Date()
-      day.setDate(day.getDate() + i)
-      const value = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`
-      days.push({
-        value,
-        label: i === 0 ? "Today" : i === 1 ? "Tomorrow" : day.toLocaleDateString(undefined, { weekday: "short" }),
-        sub: day.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
-      })
-    }
-    return days
-  }, [])
-
-  /** "07:00" to "7:00 AM", the way the window is spoken about. */
-  const prettyHour = (hhmm) => {
-    const [h, m] = String(hhmm || "").split(":").map(Number)
-    if (!Number.isFinite(h)) return hhmm || ""
-    return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`
-  }
-
-  const chooseInstant = useCallback(() => setIsScheduled(false), [])
-
-  const chooseScheduled = useCallback(() => {
-    setIsScheduled(true)
-    setScheduledDate((current) => current || scheduleDayOptions[0].value)
-  }, [scheduleDayOptions])
 
   const cartCount = getCartCount()
   const getAddressId = (address) => address?.id || address?._id || null
@@ -2334,14 +2232,10 @@ export default function Cart() {
         paymentMethod: selectedPaymentMethod,
         // `useZone()` can return `null`. Zod expects string/undefined, not null.
         zoneId: zoneId || undefined,
-        // An instant order carries neither, and takes the path it always has.
+        // Quick commerce: a cart order is always for now. Delivery windows
+        // belong to a subscription — the standing morning round — not to a
+        // one-off basket, so nothing here schedules.
         scheduledAt: isScheduled ? new Date(`${scheduledDate}T${scheduledTime}:00`).toISOString() : undefined,
-        // When a real slot was picked the server works out the time from the
-        // slot itself, and re-checks that it is still open — the list on screen
-        // may be some minutes old by the time the payment goes through.
-        ...(isScheduled && selectedSlotId
-          ? { deliverySlotId: selectedSlotId, deliveryDate: scheduledDate }
-          : {}),
       };
       // Log final order details (including paymentMethod for COD debugging)
       debugLog('?? FINAL: Sending order to backend with:', {
@@ -2933,148 +2827,6 @@ export default function Cart() {
                 <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
               </button>
 
-              {/* When the order should arrive: now, or in a booked window */}
-              <div
-                data-testid="delivery-timing"
-                className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800 overflow-hidden"
-              >
-                <div className="px-4 pt-4 pb-1">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white">When do you want it?</p>
-                </div>
-
-                <div className="px-4 pb-4">
-                  <button
-                    type="button"
-                    data-testid="timing-instant"
-                    onClick={chooseInstant}
-                    className="w-full flex items-start gap-3 text-left py-3 border-b border-gray-100 dark:border-gray-800"
-                  >
-                    <div className={`mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                      !isScheduled ? "border-[#FA0272]" : "border-gray-300 dark:border-gray-600"
-                    }`}>
-                      {!isScheduled ? <div className="h-2.5 w-2.5 rounded-full bg-[#FA0272]" /> : null}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                        Instant <Zap className="inline h-3.5 w-3.5 text-[#FA0272] mb-0.5" />
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        We start packing straight away — {instantPromise}
-                      </p>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    data-testid="timing-scheduled"
-                    onClick={chooseScheduled}
-                    className="w-full flex items-start gap-3 text-left pt-3"
-                  >
-                    <div className={`mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                      isScheduled ? "border-[#FA0272]" : "border-gray-300 dark:border-gray-600"
-                    }`}>
-                      {isScheduled ? <div className="h-2.5 w-2.5 rounded-full bg-[#FA0272]" /> : null}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">Pick a slot</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        Choose the window you want it delivered in
-                      </p>
-                    </div>
-                  </button>
-
-                  {isScheduled ? (
-                    <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-                      <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-                        {scheduleDayOptions.map((day) => (
-                          <button
-                            key={day.value}
-                            type="button"
-                            data-testid="schedule-day"
-                            onClick={() => setScheduledDate(day.value)}
-                            className={`shrink-0 rounded-xl px-3 py-2 text-left border transition-colors ${
-                              scheduledDate === day.value
-                                ? "border-[#FA0272] bg-[#FA0272]/5"
-                                : "border-gray-200 dark:border-gray-700"
-                            }`}
-                          >
-                            <p className={`text-xs font-semibold ${
-                              scheduledDate === day.value ? "text-[#FA0272]" : "text-gray-900 dark:text-white"
-                            }`}>
-                              {day.label}
-                            </p>
-                            <p className="text-[10px] text-gray-500 dark:text-gray-400">{day.sub}</p>
-                          </button>
-                        ))}
-                      </div>
-
-                      {loadingSlots ? (
-                        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">Checking available slots…</p>
-                      ) : deliverySlots.length > 0 ? (
-                        <div className="mt-3 space-y-2">
-                          {deliverySlots.map((slot) => (
-                            <button
-                              key={slot.id}
-                              type="button"
-                              data-testid="delivery-slot-option"
-                              disabled={!slot.available}
-                              onClick={() => {
-                                setSelectedSlotId(slot.id)
-                                setScheduledTime(slot.startTime)
-                              }}
-                              className={`w-full flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                                selectedSlotId === slot.id
-                                  ? "border-[#FA0272] bg-[#FA0272]/5"
-                                  : "border-gray-200 dark:border-gray-700"
-                              } ${slot.available ? "" : "opacity-50 cursor-not-allowed"}`}
-                            >
-                              <div className="min-w-0">
-                                <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
-                                  {slot.label}
-                                </p>
-                                <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                                  {prettyHour(slot.startTime)} – {prettyHour(slot.endTime)}
-                                  {slot.available ? "" : ` · ${slot.reason}`}
-                                </p>
-                              </div>
-                              {selectedSlotId === slot.id && slot.available ? (
-                                <Check className="h-4 w-4 text-[#FA0272] shrink-0" />
-                              ) : null}
-                            </button>
-                          ))}
-                          {bookableSlots.length === 0 ? (
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              Every slot for this day is closed or full — try another day.
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : availableTimeSlots.length > 0 ? (
-                        <div className="mt-3 flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-                          {availableTimeSlots.map((slot) => (
-                            <button
-                              key={slot.value}
-                              type="button"
-                              data-testid="delivery-hour-option"
-                              onClick={() => setScheduledTime(slot.value)}
-                              className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
-                                scheduledTime === slot.value
-                                  ? "border-[#FA0272] text-[#FA0272] bg-[#FA0272]/5"
-                                  : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300"
-                              }`}
-                            >
-                              {slot.label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-                          No delivery times left for this day — try another day.
-                        </p>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
 
               {/* Delivery modes & instructions */}
               <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800 overflow-hidden">
