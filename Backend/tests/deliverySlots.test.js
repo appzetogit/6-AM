@@ -633,6 +633,42 @@ describe('what a rider is offered', () => {
         assert.ok((await offeredIds(rider._id)).includes(String(insertedId)));
     });
 
+    /**
+     * Quick commerce: the rider is wanted the moment the customer orders, not
+     * once the seller taps Accept. Picking and the ride to the store happen at
+     * the same time; the hunt used to wait for Accept unless the seller was on
+     * auto-accept, which left most orders idle for as long as the seller took
+     * to look up.
+     */
+    it('offers an order the seller has not answered yet', async () => {
+        const [rider, shop] = await Promise.all([makeRider(), makeShop()]);
+        const { insertedId } = await FoodOrder.collection.insertOne({
+            _id: someId(),
+            restaurantId: shop._id,
+            orderStatus: 'created',
+            dispatch: { status: 'unassigned' },
+            scheduledAt: null,
+            createdAt: new Date()
+        });
+        assert.ok(
+            (await offeredIds(rider._id)).includes(String(insertedId)),
+            'a rider should not wait on the seller tapping Accept'
+        );
+    });
+
+    it('never offers an order that has not been paid for', async () => {
+        const [rider, shop] = await Promise.all([makeRider(), makeShop()]);
+        const { insertedId } = await FoodOrder.collection.insertOne({
+            _id: someId(),
+            restaurantId: shop._id,
+            orderStatus: 'pending_payment',
+            dispatch: { status: 'unassigned' },
+            scheduledAt: null,
+            createdAt: new Date()
+        });
+        assert.ok(!(await offeredIds(rider._id)).includes(String(insertedId)));
+    });
+
     it('does not offer a booking that is still a day away', async () => {
         const [rider, shop] = await Promise.all([makeRider(), makeShop()]);
         const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
