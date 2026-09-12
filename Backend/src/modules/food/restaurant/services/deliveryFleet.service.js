@@ -1,7 +1,15 @@
 import mongoose from 'mongoose';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
-import { CANCELLED_ORDER_STATUSES, pushStatusHistory, normalizeOrderForClient } from '../../orders/services/order.helpers.js';
+import {
+    CANCELLED_ORDER_STATUSES,
+    pushStatusHistory,
+    normalizeOrderForClient,
+    buildDeliverySocketPayload,
+    notifyOwnersActionableAlert,
+} from '../../orders/services/order.helpers.js';
+import { getIO, rooms } from '../../../../config/socket.js';
+import { logger } from '../../../../utils/logger.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 
 const ACTIVE_ORDER_STATUSES_EXCLUDING_DELIVERED = [...CANCELLED_ORDER_STATUSES, 'delivered'];
@@ -92,6 +100,38 @@ export async function assignDeliveryPartnerManually(restaurantId, orderId, deliv
         note: 'Delivery partner manually assigned by seller',
     });
     await order.save();
+
+    // The rider has to be told. Auto-dispatch shouts at every eligible rider and
+    // races them to accept; this is the opposite — one named rider has been
+    // handed one order — so it says that rather than "new order available", and
+    // there is no countdown to win.
+    //
+    // Fire-and-forget: a rider who misses the alert still sees the order in
+    // their list, and a notification failure must not undo an assignment the
+    // seller has already made.
+    void (async () => {
+        try {
+            const payload = buildDeliverySocketPayload(order, null);
+            const io = getIO();
+            if (io) {
+                io.to(rooms.delivery(String(deliveryPartnerId))).emit('order_assigned', payload);
+            }
+            await notifyOwnersActionableAlert(
+                [{ ownerType: 'DELIVERY_PARTNER', ownerId: String(deliveryPartnerId) }],
+                {
+                    title: 'An order has been assigned to you',
+                    body: `Order #${order.order_id || order.orderId || order._id} is yours — head to the store.`,
+                    data: {
+                        type: 'order_assigned',
+                        orderId: String(order._id),
+                        orderMongoId: String(order._id),
+                    },
+                },
+            );
+        } catch (err) {
+            logger.warn(`Manual assignment notice failed for order ${order._id}: ${err?.message || err}`);
+        }
+    })();
 
     return { order: normalizeOrderForClient(order) };
 }
