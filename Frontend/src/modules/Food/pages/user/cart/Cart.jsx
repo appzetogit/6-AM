@@ -1604,6 +1604,19 @@ export default function Cart() {
     selectedPaymentMethod === "wallet" ? "Wallet" : "Online Payment"
 
   const headerDeliveryTime = deliveryMode === "quick" ? "20-25 mins" : (restaurantData?.estimatedDeliveryTime || "35-40 mins")
+
+  /**
+   * What Instant actually promises.
+   *
+   * This is quick commerce: the pricing engine already works out packing plus
+   * the two rides and returns it as deliveryPromiseMinutes, so quote that
+   * rather than the shop's advertised band, which reads like a restaurant's.
+   */
+  const instantPromise = (() => {
+    const mins = Number(pricing?.deliveryPromiseMinutes)
+    if (Number.isFinite(mins) && mins > 0) return `arriving in about ${Math.round(mins)} mins`
+    return `arriving in ${headerDeliveryTime}`
+  })()
   const basicDeliveryTime = restaurantData?.estimatedDeliveryTime || "35-40 mins"
   const quickDeliveryTime = "20-25 mins"
   const headerAddressLabel = defaultAddress ? getDisplayAddressLabel(defaultAddress.label) : "Select address"
@@ -2934,7 +2947,7 @@ export default function Cart() {
                         Instant <Zap className="inline h-3.5 w-3.5 text-[#FA0272] mb-0.5" />
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        We start packing straight away — arriving in {headerDeliveryTime}
+                        We start packing straight away — {instantPromise}
                       </p>
                     </div>
                   </button>
