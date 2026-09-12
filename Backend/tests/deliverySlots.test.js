@@ -14,6 +14,7 @@ import {
     expireUnacceptedOrders
 } from '../src/modules/food/orders/services/order.service.js';
 import { listOrdersAvailableDelivery } from '../src/modules/food/orders/services/order-delivery.service.js';
+import { DEFAULT_SLOT_CUTOFF_MINUTES } from '../src/modules/food/orders/services/order.helpers.js';
 import { FoodDeliveryPartner } from '../src/modules/food/delivery/models/deliveryPartner.model.js';
 import * as slots from '../src/modules/food/admin/services/deliverySlot.service.js';
 import { slotStartOn } from '../src/modules/food/admin/services/deliverySlot.service.js';
@@ -72,6 +73,22 @@ describe('defining a slot', () => {
     it('treats an empty capacity as uncapped rather than zero', async () => {
         const { slot } = await makeSlot({ capacity: '' });
         assert.equal(slot.capacity, null);
+    });
+
+    it('falls back to the system cut-off when none is given', async () => {
+        // Quick commerce: the default is derived from the delivery promise, not
+        // pinned at an hour, so a window that says nothing inherits it.
+        const { slot } = await makeSlot({ cutoffMinutes: undefined });
+        assert.equal(slot.cutoffMinutes, DEFAULT_SLOT_CUTOFF_MINUTES);
+        assert.ok(slot.cutoffMinutes < 60, 'an hour is a restaurant-era number');
+    });
+
+    it('treats a blank cut-off as the default, and zero as right up to the start', async () => {
+        const blank = await makeSlot({ label: 'Blank', cutoffMinutes: '' });
+        assert.equal(blank.slot.cutoffMinutes, DEFAULT_SLOT_CUTOFF_MINUTES);
+
+        const none = await makeSlot({ label: 'No cut-off', startTime: '09:00', endTime: '10:00', cutoffMinutes: 0 });
+        assert.equal(none.slot.cutoffMinutes, 0);
     });
 
     it('refuses a capacity of zero, which would mean a slot nobody can book', async () => {
