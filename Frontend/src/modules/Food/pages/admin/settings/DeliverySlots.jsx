@@ -24,7 +24,7 @@ const emptyForm = () => ({
   label: "",
   startTime: "07:00",
   endTime: "08:00",
-  cutoffMinutes: 60,
+  cutoffMinutes: "",
   capacity: "",
   daysOfWeek: [],
   sortOrder: 0,
@@ -87,7 +87,7 @@ export default function DeliverySlots() {
       label: slot.label || "",
       startTime: slot.startTime || "07:00",
       endTime: slot.endTime || "08:00",
-      cutoffMinutes: slot.cutoffMinutes ?? 60,
+      cutoffMinutes: slot.cutoffMinutes ?? "",
       capacity: slot.capacity ?? "",
       daysOfWeek: slot.daysOfWeek || [],
       sortOrder: slot.sortOrder || 0,
@@ -121,7 +121,9 @@ export default function DeliverySlots() {
         label: form.label.trim(),
         startTime: form.startTime,
         endTime: form.endTime,
-        cutoffMinutes: Number(form.cutoffMinutes) || 0,
+        // Blank leaves it to the system default, which is derived from the
+        // delivery promise rather than pinned here.
+        cutoffMinutes: form.cutoffMinutes === "" ? null : Number(form.cutoffMinutes),
         // Blank means uncapped, which is not the same as a capacity of zero.
         capacity: form.capacity === "" ? null : Number(form.capacity),
         daysOfWeek: form.daysOfWeek,
@@ -330,6 +332,7 @@ export default function DeliverySlots() {
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
                   How long before the window starts you stop taking orders for it.
+                  Leave blank to use the default.
                 </p>
               </div>
               <div>
