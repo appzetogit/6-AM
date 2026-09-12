@@ -265,6 +265,22 @@ export const DISPATCH_LEAD_MINUTES =
 export const DISPATCH_LEAD_MS = DISPATCH_LEAD_MINUTES * 60 * 1000;
 
 /**
+ * How long before a window ordering for it stops, unless the admin says otherwise.
+ *
+ * This is the store's picking lead, not a delivery-speed number — but in quick
+ * commerce it should still be minutes. An hour, the old default, meant a
+ * customer could not order at 06:30 for a 07:00 round, which is precisely the
+ * order this business exists to take.
+ *
+ * Long enough to pick the batch and have the dispatcher already hunting when
+ * the window opens: the dispatch lead, plus one more packing slot for the
+ * batch, rounded to a number a human would choose.
+ */
+export const DEFAULT_SLOT_CUTOFF_MINUTES =
+    Number(process.env.SLOT_CUTOFF_MINUTES) ||
+    Math.ceil((DISPATCH_LEAD_MINUTES + PACKING_MINUTES) / 5) * 5;
+
+/**
  * How far out the dispatcher will look, attempt by attempt.
  *
  * Quick commerce bands: a rider 40 km away cannot serve a promise measured in
