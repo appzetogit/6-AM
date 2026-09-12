@@ -396,6 +396,32 @@ the app; noted so the copy does not look like a bug.
 
 ---
 
+## 6b. The rider side of a booking
+
+If the Flutter build includes the rider app, a booking changes two things and nothing
+else. The delivery lifecycle itself is identical — accept → reached pickup → confirm
+pickup → reached drop → verify drop OTP → complete — and a booking walks it exactly as
+an instant order does.
+
+**A booking is not offered until its window is close.** `GET /food/delivery/orders/available`
+excludes any order whose `scheduledAt` is more than ~30 minutes out. This is enforced
+server-side, so the rider app needs no filtering of its own — but do not build a screen
+that assumes every confirmed order in the area is available now, because that is what
+the list used to return.
+
+The reason it matters: a rider who accepts a booking is *locked* to it
+(`dispatch.status: accepted` blocks further offers), so an order due tomorrow would take
+a rider off the road for a day.
+
+**Once offered, the order carries its window.** `scheduledAt` and `deliverySlot` are in
+the rider payload, so the pickup card can say "Morning 7-8 AM" rather than presenting a
+booked round as an ordinary delivery. Both are `null` on an instant order.
+
+Everything else — earnings, the handover OTP, cash collection, the trip screens — is
+unchanged.
+
+---
+
 ## 7. Subscribing to a window
 
 `POST /food/user/subscriptions` takes a window instead of a typed time.
@@ -636,8 +662,15 @@ implementation only.
 | 71 | The order it created | `scheduledAt` 18:00 on the occurrence's day, window carried | dev script |
 | 72 | That window afterwards | `booked 3/2` — the standing arrangement pushed it over, and it now turns one-off bookings away | HTTP |
 | 73 | Admin subscription + today's-delivery rows | show `Evening 6-8 PM · 18:00–20:00`, not `18:00` | browser |
+| 74 | Rider offer list, booking a day out | not offered | dev script + tests |
+| 75 | Same booking once its window is ~10 min away | offered, carrying `scheduledAt` and the window | dev script |
+| 76 | Rider offer list against live data | 4 future bookings in the database, 0 leaked | dev script |
+| 77 | Instant order in the offer list | offered straight away, unchanged | tests |
+| 78 | Booking whose window already opened | still offered | tests |
+| 79 | Full rider lifecycle, instant order | accept → pickup → drop → OTP → delivered, all clean | dev script |
+| 80 | Full rider lifecycle, booking | identical, and the window survived to `delivered` | dev script |
 
-Backend suite at the time of writing: **201 tests, all passing**
+Backend suite at the time of writing: **205 tests, all passing**
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
 
 ### Known limits
