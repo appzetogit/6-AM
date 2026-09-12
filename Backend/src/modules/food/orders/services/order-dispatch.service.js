@@ -404,8 +404,19 @@ export async function tryAutoAssign(orderId, options = {}) {
     return null;
   }
 
-  // Decoupling: Ensure order is accepted by restaurant before dispatching to delivery boys
-  const DISPATCHABLE_STATUSES = ['confirmed', 'preparing', 'ready_for_pickup', 'ready', 'reached_pickup', 'picked_up', 'reached_drop'];
+  // Quick commerce: a rider is wanted the moment the customer orders, not once
+  // the seller taps Accept. Picking and the ride to the store happen at the same
+  // time — making one wait for the other is the difference between a promise in
+  // minutes and one in half-hours.
+  //
+  // So `created` — an order the seller has not answered yet — is dispatchable.
+  // It is still a real order with a real address, and if the seller declines it
+  // the order goes terminal, which drops it out of the rider's list and frees
+  // them for other work.
+  //
+  // `pending_payment` is deliberately absent: createOrder does not dispatch an
+  // order that has not been paid for, and nor does this.
+  const DISPATCHABLE_STATUSES = ['created', 'confirmed', 'preparing', 'ready_for_pickup', 'ready', 'reached_pickup', 'picked_up', 'reached_drop'];
   if (!DISPATCHABLE_STATUSES.includes(order.orderStatus)) {
     logger.info(`tryAutoAssign: Skip for ${orderId} (status ${order.orderStatus} not dispatchable yet).`);
     return order;
