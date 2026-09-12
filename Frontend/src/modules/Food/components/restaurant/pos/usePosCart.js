@@ -36,8 +36,22 @@ export default function usePosCart() {
   /** Rehydrate from a held bill — held lines carry itemId/name/price/quantity/discount. */
   const load = useCallback((heldLines = []) => {
     setLines(
+      // Everything the parked line knows, not just the three fields the totals
+      // need: a resumed bill has to be the same bill. Rebuilding from id, name
+      // and price alone blanked the Itemcode column and let the selling price
+      // stand in for the MRP, so the basket changed just by being parked.
       heldLines.map((l) => ({
-        ...lineFromItem({ id: l.itemId, name: l.name, price: l.price }),
+        ...lineFromItem({
+          id: l.itemId,
+          name: l.name,
+          price: l.price,
+          itemCode: l.itemCode,
+          barcode: l.barcode,
+          mrp: l.mrp,
+          unit: l.unit,
+          packSize: l.packSize,
+          gstRate: l.gstRate,
+        }),
         quantity: Number(l.quantity) || 1,
         discountPct: 0,
         addDisc: Number(l.discount) || 0,
