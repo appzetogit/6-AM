@@ -34,6 +34,7 @@ import {
   TERMINAL_ORDER_STATUSES,
   isStatusAdvance,
   DISPATCH_LEAD_MS,
+  maxOfferKm,
 } from './order.helpers.js';
 const DELIVERY_ORDER_BASE_SELECT = [
   '_id',
@@ -308,7 +309,8 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
       .select('lastLat lastLng lastLocationAt')
       .lean();
 
-    const MAX_OFFER_KM = 20; // slightly wider than dispatch radius (15km)
+    // A shade wider than the furthest dispatch band, and moves with them.
+    const MAX_OFFER_KM = maxOfferKm();
     const partnerLat = partner?.lastLat;
     const partnerLng = partner?.lastLng;
     const hasPartnerGps =
