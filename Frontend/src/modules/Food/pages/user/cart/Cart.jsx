@@ -2185,7 +2185,17 @@ export default function Cart() {
         serverPricing = pricingResponse?.data?.data?.pricing || null
       } catch (pricingError) {
         debugError("Failed to refresh order pricing before checkout:", pricingError)
-        toast.error("Unable to calculate order total. Please try again.")
+        // The server usually knows exactly what is wrong and says so in a
+        // sentence written for the customer — "Only 14 left of Chocolate
+        // Brownie. Please reduce the quantity." Replacing that with a generic
+        // "try again" hides the one thing they can act on, and invites a retry
+        // that cannot possibly succeed. Keep the generic line for the cases
+        // with nothing better to say.
+        const reason =
+          pricingError?.response?.data?.message ||
+          pricingError?.response?.data?.error?.message ||
+          ""
+        toast.error(reason || "Unable to calculate order total. Please try again.")
         setIsPlacingOrder(false)
         return
       }
