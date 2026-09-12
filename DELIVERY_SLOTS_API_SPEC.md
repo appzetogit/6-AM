@@ -91,7 +91,7 @@ came from treating a booking like an order that had just arrived.
 | `daysOfWeek` | List\<int\> | Empty = every day. Otherwise `0`=Sunday … `6`=Saturday |
 | `deliveryAt` | DateTime | When it lands: the start of the window on that day |
 | `ordersClose` | DateTime | The moment ordering for it stops |
-| `booked` | int | Orders already in it **for that day** |
+| `booked` | int | Orders already in it **for that day** — only meaningful on a capped window; always `0` when `capacity` is `null`, because nothing is counted where nothing contends |
 | `available` | bool | Whether it can still be taken |
 | `reason` | String | Why not, when `available` is false. Empty otherwise |
 
@@ -621,6 +621,13 @@ implementation only.
 | 56 | Acceptance push on a booking | names the window, not "starting to prepare it" | code read |
 | 57 | Stock held by a booking | not reclaimed by any age-based sweep | code read |
 | 58 | Full regression: book, place instant, cancel each | booking cancelled, instant refused, place freed | dev script |
+| 59 | **A booking that survived a real overnight** | placed 11 Sep for 12 Sep 07:00 — still `confirmed` next day, not swept | browser |
+| 60 | Today's windows once both are unusable | both listed, one "closed", one "full", plus "try another day" | browser |
+| 61 | Booking placed through the cart UI, then read back | `scheduledAt` 13 Sep 07:00, window snapshotted | browser |
+| 62 | Home dock on that booking | `Arriving Tomorrow, 07:00–08:00` · `BOOKED 07:00 am` | browser |
+| 63 | Orders list row for a booking | names the window; no minute countdown | browser |
+| 64 | Orders list row for an instant order beside it | `28 mins remaining`, unchanged | browser |
+| 65 | Seller Scheduled tab | `13 Sept, 06:00 pm · Evening 6-8 PM · 18:00–20:00` | browser |
 
 Backend suite at the time of writing: **201 tests, all passing**
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
@@ -629,9 +636,9 @@ Backend suite at the time of writing: **201 tests, all passing**
 
 - **Nothing has run under real traffic.** The concurrency guarantee is proven with three
   simultaneous checkouts, not three hundred.
-- **No booking has survived a real overnight.** Every "survives the night" check uses a
-  clock that was set, not a night that passed. The acceptance sweep and the deferred
-  dispatch both run from queued jobs hours later; the queuing and the handlers are
-  verified, an actual 18-hour wait is not.
+- **A booking has now survived a real overnight** (check 59): orders placed on 11 Sep for
+  the 07:00 window on 12 Sep were still `confirmed` the next day. What remains unproven
+  is the *deferred dispatch* firing from its queued job after a long wait — the handler
+  and the queuing are verified, an actual 18-hour timer completing is not.
 - **Slots are platform-wide**, not per seller — one set of windows for every shop. This
   was a deliberate decision, not an oversight.
