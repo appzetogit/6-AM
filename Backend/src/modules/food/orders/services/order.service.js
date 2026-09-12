@@ -61,14 +61,6 @@ import {
  * window on the previous date.
  */
 /**
- * How long before a booked window the rider hunt starts.
- *
- * Long enough to pick the order and ride to the shop, short enough that a
- * rider is not held for an order that is hours away.
- */
-const DISPATCH_LEAD_MS = 30 * 60 * 1000;
-
-/**
  * "tomorrow between 07:00 and 08:00" — the window an order is booked into,
  * while it is still in the future.
  *
@@ -117,6 +109,7 @@ import {
   canExposeOrderToRestaurant,
   isStatusAdvance,
   STATUS_PRIORITY,
+  DISPATCH_LEAD_MS,
 } from './order.helpers.js';
 
 
