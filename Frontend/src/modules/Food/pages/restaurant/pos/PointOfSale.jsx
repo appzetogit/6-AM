@@ -143,7 +143,17 @@ export default function PointOfSale() {
     customerId: customer?.id || undefined,
     customerName: customer?.name || undefined,
     customerPhone: customer?.phone || undefined,
-    items: cart.lines.map((l) => ({ itemId: l.itemId, quantity: Number(l.quantity) || 1, discount: lineDiscount(l) })),
+    // itemCode and mrp ride along for the sake of a hold: every figure that
+    // decides the bill is re-read from the catalogue, but these two are only
+    // ever read in the product search, and a parked bill has to come back
+    // looking like the one that was parked.
+    items: cart.lines.map((l) => ({
+      itemId: l.itemId,
+      quantity: Number(l.quantity) || 1,
+      discount: lineDiscount(l),
+      itemCode: l.itemCode || undefined,
+      mrp: l.mrp != null ? l.mrp : undefined,
+    })),
     flatDiscount: flat,
     additionalCharges,
     roundOff,
