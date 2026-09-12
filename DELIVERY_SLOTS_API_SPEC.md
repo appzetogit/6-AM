@@ -86,7 +86,7 @@ came from treating a booking like an order that had just arrived.
 | `id` | String | Send this back when booking |
 | `label` | String | Customer-facing name — show this, not the raw times alone |
 | `startTime` / `endTime` | String `"HH:mm"` | 24-hour, the shop's local clock |
-| `cutoffMinutes` | int | How long before `startTime` ordering for it stops |
+| `cutoffMinutes` | int | How long before `startTime` ordering for it stops. Defaults to **15**, derived from the delivery promise — not an hour |
 | `capacity` | int? | Orders the window takes per day. `null` = uncapped |
 | `daysOfWeek` | List\<int\> | Empty = every day. Otherwise `0`=Sunday … `6`=Saturday |
 | `deliveryAt` | DateTime | When it lands: the start of the window on that day |
@@ -499,7 +499,7 @@ publishing it is their call.
 |---|---|---|
 | `label` | yes | |
 | `startTime`, `endTime` | yes | `"HH:mm"`; end must be after start |
-| `cutoffMinutes` | no | Defaults to `60`. `0` = orders taken up to the start |
+| `cutoffMinutes` | no | Omit or send `null` for the system default (**15 min**). `0` = orders taken right up to the start — not the same as blank |
 | `capacity` | no | `null`/omitted = uncapped. Must be ≥ 1 if given |
 | `daysOfWeek` | no | Empty = every day |
 | `sortOrder` | no | Display order; ties break on `startTime` |
@@ -569,6 +569,24 @@ slots visible in the admin list, greyed out, with a way to restore.
 - [ ] Window picker from the same endpoint, `available`/`reason` ignored.
 - [ ] Send `deliverySlotId`; fall back to a time picker only when the list is empty.
 - [ ] Display `deliverySlot.label`, falling back to `deliveryTime`.
+
+---
+
+## 9b. The numbers, and where they come from
+
+Every timing on this feature is derived from the quick-commerce delivery promise rather
+than chosen, so they move together if the business does.
+
+| Number | Value | Derived from | Override |
+|---|---|---|---|
+| Packing | 3 min | — | `PACKING_MINUTES` |
+| Dispatch bands | 3/5/8/12 km | — | `DISPATCH_RADIUS_BANDS_KM` |
+| Rider offer radius | 15 km | a quarter wider than the furthest band | follows the bands |
+| Dispatch lead | 11 min | packing vs. the ride across the first band, plus hunt slack | `DISPATCH_LEAD_MINUTES` |
+| Slot cut-off default | 15 min | dispatch lead + one packing slot for the batch | `SLOT_CUTOFF_MINUTES`, or per window |
+
+None of these is an hour. If a screen quotes a half-hour wait on this product, it is
+reading a restaurant-era constant.
 
 ---
 
@@ -676,8 +694,12 @@ implementation only.
 | 81 | Dispatch lead recomputed from the promise constants | 11 minutes, not a flat 30 | code read |
 | 82 | Rider offer radius | 15 km, a quarter wider than the furthest 12 km band | code read |
 | 83 | Instant option in the cart | `arriving in about 6 mins` from `deliveryPromiseMinutes` | browser |
+| 84 | Slot cut-off default | 15 minutes, derived — an hour would refuse a 06:30 order for the 07:00 round | tests |
+| 85 | Window created with the cut-off left blank | inherits the default: `Orders close 15 min before` | browser |
+| 86 | Blank cut-off against an explicit `0` | blank = default, `0` = orders taken right up to the start | tests |
+| 87 | Windows already carrying an explicit cut-off | keep it; stored rows are not rewritten | HTTP |
 
-Backend suite at the time of writing: **205 tests, all passing**
+Backend suite at the time of writing: **207 tests, all passing**
 (`Backend/tests/deliverySlots.test.js`, `Backend/tests/productSubscriptionAdmin.test.js`).
 
 ### Known limits
@@ -688,9 +710,5 @@ Backend suite at the time of writing: **205 tests, all passing**
   the 07:00 window on 12 Sep were still `confirmed` the next day. What remains unproven
   is the *deferred dispatch* firing from its queued job after a long wait — the handler
   and the queuing are verified, an actual 18-hour timer completing is not.
-- **Slot cut-offs still default to 60 minutes.** That is a picking-lead decision for a
-  morning round rather than a delivery-speed one, so it was left alone — but it is the
-  one remaining number on this feature that was not re-derived for quick commerce, and
-  it is worth a deliberate choice per window.
 - **Slots are platform-wide**, not per seller — one set of windows for every shop. This
   was a deliberate decision, not an oversight.
