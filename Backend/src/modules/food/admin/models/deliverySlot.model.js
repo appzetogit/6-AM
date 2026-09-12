@@ -23,7 +23,12 @@ const deliverySlotSchema = new mongoose.Schema(
          * before it starts. A 6am slot with 120 minutes closes at 4am — the
          * shop needs the night to pick and load it.
          */
-        cutoffMinutes: { type: Number, min: 0, default: 60 },
+        /**
+         * Minutes before the window that ordering for it stops. Null means the
+         * system default, which is derived from the delivery promise rather
+         * than written down twice — see DEFAULT_SLOT_CUTOFF_MINUTES.
+         */
+        cutoffMinutes: { type: Number, min: 0, default: null },
 
         /**
          * How many orders this slot can take in a day. null means no cap, which
