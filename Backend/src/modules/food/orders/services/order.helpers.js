@@ -1,4 +1,15 @@
 import mongoose from 'mongoose';
+
+/**
+ * How long before a booked window the order becomes work.
+ *
+ * Shared by the dispatcher, which starts hunting a rider then, and by the
+ * rider's own offer list, which must not show a booking any earlier — a
+ * window a day away is not something to ride to now, and a rider who accepts
+ * one is locked out of real work until it comes round.
+ */
+export const DISPATCH_LEAD_MS = 30 * 60 * 1000;
+
 import { FoodOrder } from '../models/order.model.js';
 import { logger } from '../../../../utils/logger.js';
 import { haversineKm as geoHaversineKm, parseGeoPoint, formatDeliveryAddress } from '../../shared/geo.utils.js';
