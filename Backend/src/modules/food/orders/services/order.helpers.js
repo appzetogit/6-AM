@@ -1,15 +1,5 @@
 import mongoose from 'mongoose';
 
-/**
- * How long before a booked window the order becomes work.
- *
- * Shared by the dispatcher, which starts hunting a rider then, and by the
- * rider's own offer list, which must not show a booking any earlier — a
- * window a day away is not something to ride to now, and a rider who accepts
- * one is locked out of real work until it comes round.
- */
-export const DISPATCH_LEAD_MS = 30 * 60 * 1000;
-
 import { FoodOrder } from '../models/order.model.js';
 import { logger } from '../../../../utils/logger.js';
 import { haversineKm as geoHaversineKm, parseGeoPoint, formatDeliveryAddress } from '../../shared/geo.utils.js';
@@ -250,6 +240,58 @@ export const AVG_SPEED_KMPH = 22;
  * own accept-to-ready times once there is enough history to be worth trusting.
  */
 export const PACKING_MINUTES = Number(process.env.PACKING_MINUTES) || 3;
+
+/**
+ * How long before a booked window the order becomes work: when the dispatcher
+ * starts hunting a rider, and the earliest the rider's own offer list shows it.
+ *
+ * This is quick commerce, not restaurant delivery. The whole promise is packing
+ * overlapped with a short ride to the seller, then a short ride to the door —
+ * minutes, not half an hour. So the lead is derived from the same constants as
+ * the promise itself: packing against the ride across the first dispatch band,
+ * whichever is longer, plus a little slack for the hunt to actually find
+ * somebody. A flat half hour would have pulled riders off the morning rush to
+ * stand waiting for an order that takes ten minutes to run.
+ */
+const FIRST_DISPATCH_BAND_KM = Number(process.env.DISPATCH_FIRST_BAND_KM) || 3;
+const HUNT_SLACK_MINUTES = 2;
+
+export const DISPATCH_LEAD_MINUTES =
+    Number(process.env.DISPATCH_LEAD_MINUTES) ||
+    Math.ceil(
+        Math.max(PACKING_MINUTES, (FIRST_DISPATCH_BAND_KM / AVG_SPEED_KMPH) * 60) + HUNT_SLACK_MINUTES
+    );
+
+export const DISPATCH_LEAD_MS = DISPATCH_LEAD_MINUTES * 60 * 1000;
+
+/**
+ * How far out the dispatcher will look, attempt by attempt.
+ *
+ * Quick commerce bands: a rider 40 km away cannot serve a promise measured in
+ * minutes, so offering to them mostly delays the escalation that would have got
+ * the order delivered.
+ */
+export const dispatchRadiusBandsKm = () => {
+    const parsed = String(process.env.DISPATCH_RADIUS_BANDS_KM || '3,5,8,12')
+        .split(',')
+        .map((value) => Number(value.trim()))
+        .filter((value) => Number.isFinite(value) && value > 0);
+    return parsed.length > 0 ? parsed : [3, 5, 8, 12];
+};
+
+/**
+ * How far out a rider browsing for work is shown orders.
+ *
+ * A shade wider than the furthest the dispatcher itself will go, so a rider can
+ * still take something just outside the last escalation — but not so wide that
+ * the list fills with orders they could never serve in time. Derived from the
+ * bands, because it was once a flat 20 km explained as "slightly wider than
+ * dispatch (15 km)", and stayed there after the bands dropped to 3/5/8/12.
+ */
+export const maxOfferKm = () => {
+    const bands = dispatchRadiusBandsKm();
+    return Math.round(bands[bands.length - 1] * 1.25);
+};
 
 /**
  * Live ETA derived from the rider's last known position, recomputed on every read.
