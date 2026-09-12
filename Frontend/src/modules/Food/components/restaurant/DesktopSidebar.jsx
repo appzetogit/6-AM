@@ -74,6 +74,7 @@ const sections = [
         type: "expandable",
         subItems: [
           { name: "Delivery settings", path: `${BASE}/delivery-settings` },
+          { name: "Delivery fleet", path: `${BASE}/delivery-fleet` },
           { name: "Rush hour", path: `${BASE}/rush-hour` },
           { name: "Zone setup", path: `${BASE}/zone-setup` },
         ],
