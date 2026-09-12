@@ -59,13 +59,36 @@ function normalizeDeliveryNode(node = {}) {
   }, {});
 }
 
+/**
+ * Brings Firebase up for a live subscription, and reports failure instead of
+ * throwing.
+ *
+ * Every subscriber below is called from a render effect, so a throw here takes
+ * the effect down with it and whatever the effect was going to do afterwards —
+ * clearing a loading flag, most damagingly — never happens. A bad or missing
+ * API key then leaves the order screen stuck on "Loading order details…" even
+ * though the order itself came back fine.
+ *
+ * Live position is an enhancement on top of the order; the order has to render
+ * without it.
+ */
+function readyForSubscription(onError, path) {
+  try {
+    // Enable Auth so RTDB security rules can work (existing session),
+    // but do NOT enable GoogleAuthProvider to avoid identitytoolkit calls
+    // on pages that don't need sign-in.
+    ensureFirebaseInitialized({ enableAuth: true, enableGoogleProvider: false, enableRealtimeDb: true });
+    return true;
+  } catch (error) {
+    if (typeof onError === 'function') onError(error, path);
+    return false;
+  }
+}
+
 export function subscribeOrderTracking(orderId, onChange, onError) {
   if (!orderId || typeof onChange !== 'function') return () => {};
-  // Enable Auth so RTDB security rules can work (existing session),
-  // but do NOT enable GoogleAuthProvider to avoid identitytoolkit calls
-  // on pages that don't need sign-in.
-  ensureFirebaseInitialized({ enableAuth: true, enableGoogleProvider: false, enableRealtimeDb: true });
   const path = getOrderTrackingPath(orderId);
+  if (!readyForSubscription(onError, path)) return () => {};
   const unsub = onValue(
     ref(firebaseRealtimeDb, path),
     (snapshot) => {
@@ -82,8 +105,8 @@ export function subscribeOrderTracking(orderId, onChange, onError) {
 
 export function subscribeDeliveryLocation(deliveryId, onChange, onError) {
   if (!deliveryId || typeof onChange !== 'function') return () => {};
-  ensureFirebaseInitialized({ enableAuth: true, enableGoogleProvider: false, enableRealtimeDb: true });
   const path = getDeliveryLocationPath(deliveryId);
+  if (!readyForSubscription(onError, path)) return () => {};
   const unsub = onValue(
     ref(firebaseRealtimeDb, path),
     (snapshot) => {
@@ -100,7 +123,7 @@ export function subscribeDeliveryLocation(deliveryId, onChange, onError) {
 
 export function subscribeAllDeliveryLocations(onChange, onError) {
   if (typeof onChange !== 'function') return () => {};
-  ensureFirebaseInitialized({ enableAuth: true, enableGoogleProvider: false, enableRealtimeDb: true });
+  if (!readyForSubscription(onError, 'delivery_boys')) return () => {};
   const nodes = {
     delivery: {},
     delivery_boys: {},
@@ -131,8 +154,8 @@ export function subscribeAllDeliveryLocations(onChange, onError) {
 
 export function subscribeRestaurantLocation(restaurantId, onChange, onError) {
   if (!restaurantId || typeof onChange !== 'function') return () => {};
-  ensureFirebaseInitialized({ enableAuth: true, enableGoogleProvider: false, enableRealtimeDb: true });
   const path = getRestaurantLocationPath(restaurantId);
+  if (!readyForSubscription(onError, path)) return () => {};
   const unsub = onValue(
     ref(firebaseRealtimeDb, path),
     (snapshot) => {
