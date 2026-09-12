@@ -259,7 +259,11 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
                 },
               },
             },
-            orderStatus: { $in: ['confirmed', 'preparing', 'ready_for_pickup'] },
+            // `created` is an order the seller has not answered yet. The
+            // dispatcher already offers those — quick commerce sends a rider
+            // the moment the customer orders — so a rider browsing the list
+            // must see the same orders they can be pushed.
+            orderStatus: { $in: ['created', 'confirmed', 'preparing', 'ready_for_pickup'] },
             // A booking is confirmed the moment it is placed and stays
             // unassigned until its window, so without this a rider was offered
             // tomorrow's round today — and accepting one locked them out of
