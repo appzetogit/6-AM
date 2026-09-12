@@ -201,9 +201,9 @@ per band, either a flat `deliveryBoyBasePay` or `deliveryBoyPerKm` (base pay
 wins if both are set).
 
 **If no fee ranges are configured, every rider earning is ₹0.** That is not a
-bug — it is what an unconfigured system returns. Verified: with a 0–5 km band at
-₹25 base pay, an order carried `riderEarning: 25` and the rider's offer card
-showed **₹25.00**.
+bug — it is what an unconfigured system returns, and it was the explanation for
+every ₹0.00 seen while testing before the fees were set. With a 0–5 km band at
+₹25 base pay the same order carried `riderEarning: 25` and paid out in full (§5).
 
 Consider hiding the amount rather than printing **₹0.00** when it is zero — a
 rider reads ₹0.00 as an unpaid job and declines.
@@ -215,12 +215,22 @@ delivered orders — not stored as a running balance. `food_delivery_wallets` ex
 for **cash-in-hand and withdrawals**, and no row is created just because a
 delivery completed.
 
-So "no wallet row" is by design. Do not build the Pocket screen expecting a
-balance field to increment on delivery.
+Measured after the run in §5, on a rider with seven completed deliveries:
+
+```
+delivered orders:        7
+sum of riderEarning:     25      ← the six earlier ones predate the fee config
+Pocket balance on screen: ₹25.00
+wallet row:              none
+```
+
+So "no wallet row" is by design, and "Pocket balance" is a **computed figure, not
+a stored one**. Do not build the Pocket screen expecting a balance field to
+increment on delivery — there is no such field.
 
 ---
 
-## 5. Verified, and not
+## 5. What was verified
 
 **Driven end to end in a browser:** customer picks a product → cart → pays →
 rider request arrives (socket, with a 15s expiry) → accept → reached pickup →
@@ -231,10 +241,18 @@ and onto the rider's card.
 
 **Backend suite:** 209 tests passing.
 
-**Not proven:** a *non-zero* earning appearing on the Pocket screen. Computation
-and storage are verified and the screen aggregates the right field, but every
-order I managed to deliver was created before the fees were configured, so ₹0 was
-the correct answer for that data. Worth one deliberate run after configuring fees.
+**The earning chain, proven end to end** on a single order after configuring the
+fees — Pocket read ₹0 before the run, so the figure is attributable to it:
+
+| Link | Observed |
+|---|---|
+| Admin fee config | 0–5 km band, ₹25 base pay |
+| → order pricing | delivery fee and platform fee charged |
+| → `riderEarning` on the order | `25` |
+| → rider's offer card | **₹25.00** · TRIP TIME 3 MINS · 900 m |
+| → trip | accept → pickup → drop → OTP → complete |
+| → completion screen | **EARNINGS ADDED ₹25.00** |
+| → **Pocket** | **EARNINGS 6–12 SEP: ₹25** · Pocket balance **₹25.00** |
 
 ---
 
