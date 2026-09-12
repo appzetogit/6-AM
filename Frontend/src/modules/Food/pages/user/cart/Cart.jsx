@@ -1603,7 +1603,20 @@ export default function Cart() {
   const selectedPaymentLabel =
     selectedPaymentMethod === "wallet" ? "Wallet" : "Online Payment"
 
-  const headerDeliveryTime = deliveryMode === "quick" ? "20-25 mins" : (restaurantData?.estimatedDeliveryTime || "35-40 mins")
+  /**
+   * The wait quoted at the top of the cart.
+   *
+   * Quick commerce: the pricing engine works out packing plus the two rides and
+   * returns it, so quote that. The shop's advertised band is the fallback for
+   * before the quote lands — otherwise the header said "35-40 mins" while the
+   * Instant option two inches below said "about 6 mins", on the same screen.
+   */
+  const advertisedDeliveryBand = deliveryMode === "quick" ? "20-25 mins" : (restaurantData?.estimatedDeliveryTime || "35-40 mins")
+  const promisedMinutes = Number(pricing?.deliveryPromiseMinutes)
+  const headerDeliveryTime =
+    Number.isFinite(promisedMinutes) && promisedMinutes > 0
+      ? `${Math.round(promisedMinutes)} mins`
+      : advertisedDeliveryBand
 
   /**
    * What Instant actually promises.
@@ -1612,11 +1625,10 @@ export default function Cart() {
    * the two rides and returns it as deliveryPromiseMinutes, so quote that
    * rather than the shop's advertised band, which reads like a restaurant's.
    */
-  const instantPromise = (() => {
-    const mins = Number(pricing?.deliveryPromiseMinutes)
-    if (Number.isFinite(mins) && mins > 0) return `arriving in about ${Math.round(mins)} mins`
-    return `arriving in ${headerDeliveryTime}`
-  })()
+  const instantPromise =
+    Number.isFinite(promisedMinutes) && promisedMinutes > 0
+      ? `arriving in about ${Math.round(promisedMinutes)} mins`
+      : `arriving in ${advertisedDeliveryBand}`
   const basicDeliveryTime = restaurantData?.estimatedDeliveryTime || "35-40 mins"
   const quickDeliveryTime = "20-25 mins"
   const headerAddressLabel = defaultAddress ? getDisplayAddressLabel(defaultAddress.label) : "Select address"
