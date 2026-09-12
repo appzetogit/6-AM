@@ -1029,19 +1029,24 @@ export async function createOrder(userId, dto) {
       await incrementCouponUsageForOrder(order, userId);
     }
 
-    // Normally the rider hunt starts when the seller taps Accept. Auto-accepted
-    // orders have no such moment, so it starts here -- and it starts now rather
-    // than after picking, because the ride to the seller and the picking happen
-    // at the same time. Waiting for one to finish before starting the other is
-    // the difference between a promise in minutes and one in half-hours.
+    // The rider hunt starts the moment the customer orders — not when the
+    // seller taps Accept. Picking and the ride to the store happen at the same
+    // time, so making the rider wait on the tablet is the difference between a
+    // promise in minutes and one in half-hours. It used to wait for Accept
+    // unless the seller was on auto-accept, which meant most orders sat idle
+    // for exactly as long as the seller took to look up.
     //
-    // Fire-and-forget, exactly as the accept path does it: a dispatch failure
-    // must not fail an order the customer has already paid for.
+    // Two orders are never dispatched here. A counter sale is already in the
+    // customer's hands, and an order awaiting online payment has not been paid
+    // for — money first, always.
+    //
+    // Fire-and-forget: a dispatch failure must not fail an order the customer
+    // has already paid for.
     //
     // A booking is the exception: hunting a rider at midnight for a 7am round
     // holds one for eight hours and tells the customer nothing. It waits until
     // the window is close, and the queue wakes it then.
-    if (autoAccept) {
+    if (!counterSale && !isAwaitingOnlinePayment) {
       const startsIn = scheduledFor ? new Date(scheduledFor).getTime() - Date.now() : 0;
       if (startsIn > DISPATCH_LEAD_MS) {
         void addOrderJob(
