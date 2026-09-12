@@ -824,16 +824,31 @@ export default function OrderTracking() {
   // Poll for order updates (especially when delivery partner accepts)
 
   const pollRef = useRef(null);
+  const activeOrderIdRef = useRef(null);
 
   // Main fetch & polling core logic. (Isolated from socket connection stat-changes)
   useEffect(() => {
     if (!orderId) return;
 
-    let isSubscribed = true;
+    // What a finishing request checks before it commits.
+    //
+    // This used to be a flag local to the effect run, cleared on cleanup. React
+    // 18 StrictMode mounts, tears down and immediately remounts, so the first
+    // run's flag was always false by the time its fetch resolved — the result
+    // was dropped, and isInitialPollRequestedRef (a ref, which survives the
+    // remount) stopped the second run from ever asking again. Loading was never
+    // cleared. Opening an order URL directly — a deep link, a notification tap,
+    // a refresh — sat on the spinner forever; it only appeared to work when the
+    // orders list had already put the order in context.
+    //
+    // Keying on the order instead means a torn-down run still commits to the
+    // same component, and only a request for a *different* order is discarded.
+    activeOrderIdRef.current = orderId;
+    const isSubscribed = () => activeOrderIdRef.current === orderId;
     let requestInProgress = false;
 
     const poll = async (isInitial = false) => {
-      if (!isSubscribed || requestInProgress) return;
+      if (!isSubscribed() || requestInProgress) return;
       if (terminalPollStopRef.current && !isInitial) return;
 
       const now = Date.now();
@@ -852,7 +867,7 @@ export default function OrderTracking() {
       requestInProgress = true;
       try {
         const response = await fetchOrderDetailsWithFallback({ force: isInitial });
-        if (!isSubscribed) return;
+        if (!isSubscribed()) return;
 
         let finalOrderData = null;
 
@@ -884,20 +899,20 @@ export default function OrderTracking() {
           try {
             const matchedOrder = await resolveOrderFromList(orderId);
             if (matchedOrder) {
-              if (!isSubscribed) return;
+              if (!isSubscribed()) return;
               setOrder(prev => transformOrderForTracking(matchedOrder, prev));
               setError(null);
               setLoading(false);
               return;
             }
           } catch { }
-          if (!isSubscribed) return;
+          if (!isSubscribed()) return;
           setError(err.response?.data?.message || 'Failed to fetch order details');
           terminalPollStopRef.current = true;
         }
       } finally {
         requestInProgress = false;
-        if (isInitial && isSubscribed) setLoading(false);
+        if (isInitial && isSubscribed()) setLoading(false);
       }
     };
 
@@ -909,9 +924,10 @@ export default function OrderTracking() {
       poll(true);
     }
 
-    return () => {
-      isSubscribed = false;
-    };
+    // Nothing to tear down: what a finishing request commits to is decided by
+    // the order it was asked about, not by whether this particular effect run
+    // is still mounted. Clearing a flag here is what used to strand the screen.
+    return () => { };
   }, [orderId, fetchOrderDetailsWithFallback, resolveOrderFromList]);
 
   // Interval Manager (dynamically adapts based on socket connection state independently)
